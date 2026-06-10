@@ -22,6 +22,8 @@ class CSet(set):
     def __hash__(self):
         return self.idx
 
+def box_format(known):
+    return '\n'.join(''.join(str(known[j]) if known[j] else '.' for j in range(i, i+9)) for i in range(0,81,9))
 
 def get_rcb(idx):
     r = idx // 9
@@ -35,21 +37,20 @@ def add_known(known, unknowns, idx, value):
 
     Subtract value from r,c,m possible sets. Set known.
     """
-    print(f'add_known {idx=} {value=}')
     row, col, box = get_rcb(idx)
-    for u in {
-        u for u in unknowns.values() if (u.row == row or u.col == col or u.box == box)
-    }:
-        u -= {value}
-    unknowns.pop(idx, None)
+    unknowns.pop(idx)
     known[idx] = value
-    print(f'known={format_known(known)}')
+    for u in [u for u in unknowns.values() if (u.row == row or u.col == col or u.box == box) and value in u]:
+        u -= {value}
+        if len(u)==0:
+            print(f'error at {u.idx}: {known}\n{unknowns}\n')
+        assert len(u)
 
 def find_singles(known, unknowns):
     """If a candidate has a single value, add as known."""
     for u in unknowns.values():
-#        print(f'find singles {u=} {len(u)=}')
         if len(u) == 1:
+            #print(f'found single {u=} {len(u)=}')
             add_known(known, unknowns, u.idx, next(iter(u)))
             return True
     return False
@@ -63,17 +64,18 @@ def find_unaries(known, unknowns):
     for u in unknowns.values():
         s = set.union(*(u2 for u2 in unknowns.values() if u2.row ==
                        u.row and u2.idx != u.idx ))
-        #print(f'{u=} {s=}')
         for v in u:
             if not v in s:
                 add_known(known, unknowns, u.idx, v)
                 return True
+            
         s = set.union(*( u2 for u2 in unknowns.values() if u2.col ==
                        u.col and u2.idx != u.idx ))
         for v in u:
             if not v in s:
                 add_known(known, unknowns, u.idx, v)
                 return True
+            
         s = set.union(*( u2 for u2 in unknowns.values() if u2.box ==
                        u.box and u2.idx != u.idx ))
         for v in u:
@@ -97,11 +99,11 @@ def elim_values(vi, gi):
     except TypeError:
         vl = [vi]
     for v in vl:
-        for g in gl:
-            if v in g:
+        for u in gl:
+            if v in u:
                 ret = True
-                print(f'removing {v=} from {g=}')
-                g.discard(v)
+                u.discard(v)
+                assert len(u)
     return ret
 
 
@@ -121,12 +123,12 @@ def find_rcex(known, unknowns):
     for u in unknowns.values():
         for v in u:
             if not any( 1 for u2 in unknowns.values() if u2.box !=
-                        u.box and u.row == u2.row and u2.contains(v) ):
-                if elim_values(v, [u2 for u2 in unknowns if u2.box ==
+                        u.box and u.row == u2.row and v in u2 ):
+                if elim_values(v, [u2 for u2 in unknowns.values() if u2.box ==
                                    u.box and u2.row != u.row] ):
                     return True
             if not any(1 for u2 in unknowns.values() if u2.box !=
-                       u.box and u.col == u2.col and u2.contains(v) ):
+                       u.box and u.col == u2.col and v in u2 ):
                 if elim_values(v, [ u2 for u2 in unknowns.values() if
                                     u2.box == u.box and u2.col !=
                                     u.col ], ):
@@ -194,20 +196,16 @@ def find_locked(known, unknowns):
                     ):
                         return True
     for b in range(9):
-        bs = [u for u in unknowns.values() if u.box == r]
+        bs = [u for u in unknowns.values() if u.box == b]
         for group_size in range(2, len(bs)):
             for group in itertools.combinations(bs, group_size):
                 sug = set.union(*group)
                 if len(sug) == group_size:
                     # Found a group. Eliminate group elements from everthing else in box.
-                    if elim_values(
-                        [v for v in sug],
-                        [
-                            u
-                            for u in unknowns.values()
-                            if u.box == b and (not s in group)
-                        ],
-                    ):
+                    if elim_values( [v for v in sug],
+                                    [ u for u in
+                                      unknowns.values() if u.box == b and
+                                      (not u in group) ], ):
                         return True
     return False
 
@@ -240,10 +238,11 @@ def format_known(known):
     return "".join(str(v) if v else "." for v in known)
 
 
-def run_solvers(solvers, known, unknown):
+def run_solvers(solvers, known, unknowns):
     for s in solvers:
         print(f'calling solver {s.__name__}')
-        if s(known, unknown):
+        if s(known, unknowns):
+            assert all(len(u) > 0 for u in unknowns.values())
             return True
     return False
 
@@ -268,8 +267,9 @@ def solve(puzzle):
     unknowns = create_unknowns(known)
     assert all(len(u) > 0 for u in unknowns.values())
     while len(unknowns) and run_solvers(solvers, known, unknowns):
-        assert all(len(u) > 0 for u in unknowns.values())
-        pass
+        if not all(len(u) > 0 for u in unknowns.values()):
+            sys.stderr.write(f'Internal error with line\n{puzzle}\n{format_known(known)}\n')
+            break
     return (len(unknowns) == 0, format_known(known))
 
 
@@ -289,7 +289,10 @@ def main():
             line = line.strip()
             if not line:
                 continue
-            results.append(format_puzzle(solve_puzzle(parse_puzzle(line))))
+            r=solve(line)
+            if not r[0]:
+                sys.stderr.write(f'failed:\ni={line}\no={r[1]}\n')
+            results.append(f'i={line}\no={r[1]}')
 
     output = "\n".join(results)
     if output:
@@ -302,18 +305,4 @@ def main():
 
 
 if __name__ == "__main__":
-    kt = (
-        "3..4.9..."
-        "1....8..."
-        "9...1..2."
-        "...3....."
-        "23...1.85"
-        "..59....."
-        "........."
-        ".79...3.."
-        "..8..2..6"
-    )
-    print(f"{kt=}")
-    ks = solve(kt)
-    print(f"{ks=}")
-#    main()
+    main()
