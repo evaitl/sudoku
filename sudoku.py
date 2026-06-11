@@ -7,7 +7,8 @@ import sys
 log = logging.getLogger(__name__)
 
 DEBUG_SECTIONS = frozenset({ "solve", "assign", "solver", "singles",
-                             "unaries", "locked", "boxex", "rcex", "elim","fish", })
+                             "unaries", "locked", "boxex", "rcex", "elim","fish",
+                             "skyscraper" })
 _debug_sections = None
 
 
@@ -181,6 +182,39 @@ def find_boxex(known, unknowns):
                     return True
     return False
 
+def linked_set(cs, unknowns):
+    """Return a set of all candidate sets that are linked to cs
+    """
+    return {u for u in unknowns.values() if u.row==cs.row or u.col==cs.col or u.box==cs.box} - {cs}
+
+def find_skyscrapers(known,unknowns):
+    """
+
+    https://sudoku.coach/en/learn/skyscraper
+    """
+    for row in range(9):
+        for v in range(1,10):
+            pair=[u for u in unknowns.values() if u.row==row and v in u]
+            if len(pair)!=2:
+                continue
+            for s1 in [u for u in unknowns.values() if u.idx != pair[0].idx and u.col==pair[0].col and v in u]:
+                for s2 in [u for u in unknowns.values() if u.idx != pair[1].idx and u.col == pair[1].col and v in u]:
+                    intersection = (linked_set(s1,unknowns) & linked_set(s2,unknowns))-set(pair)
+                    if elim_values(v,intersection):
+                        dbg("skyscraper",f'skyscraper: {v=} {intersection=}')
+                        return True
+    for col in range(9):
+        for v in range(1,10):
+            pair=[u for u in unknowns.values() if u.col==col and v in u]
+            if len(pair)!=2:
+                continue
+            for s1 in [u for u in unknowns.values() if u.idx != pair[0].idx and u.row==pair[0].row and v in u]:
+                for s2 in [u for u in unknowns.values() if u.idx != pair[1].idx and u.row == pair[1].row and v in u]:
+                    intersection = (linked_set(s1,unknowns) & linked_set(s2.unknowns)) - set(pair)
+                    if elim_values(v,intersection):
+                        dbg("skyscraper",f'skyscraper: {v=} {intersection=}')
+                        return True
+    return False
 
 def find_fish(known,unknowns):
     """xwing, swordfish, etcetera
@@ -206,62 +240,8 @@ def find_fish(known,unknowns):
                 if elim_values(v, remove_set):
                     dbg("fish", f'fish: {fish_size=} {v=} {rows=} {col_set=}')
                     return True
-    # What's good for rows, is good for columns. 
-    for fish_size in range(2,9):
-        for cols in itertools.combinations(range(9),fish_size):
-            col_sets=[[u for u in unknowns.values() if u.col==col] for col in cols]
-            for v in range(1,10):
-                # A row must be nonempty for set.union to work. v must be in each row. 
-                if not all(c for c in col_sets) or not all(v in set.union(*c) for c in col_sets):
-                    continue
-                row_set=set(u.row for c in col_sets for u in c if v in u)
-                # The set of rows of csets containing v must be fish_size
-                if len(row_set)!=fish_size:
-                    continue
-                remove_set=[u for u in unknowns.values() if (not u.col in cols) and u.row in row_set]
-                if elim_values(v, remove_set):
-                    dbg("fish", f'fish: {fish_size=} {v=} {cols=} {row_set=}')
-                    return True
+    # Swapping row/cols won't actually find anything else.             
     return False
-
-'''                
-def find_xwing(known,unknowns):
-    """Find xwings
-    
-    https://sudoku.coach/en/learn/x-wing
-    """
-    for row1, row2 in itertools.combinations(range(9),2):
-        uset1={u for u in unknowns.values() if u.row==row1}
-        uset2={u for u in unknowns.values() if u.row==row2}
-        for v in range(1,10):
-            pair1=[u for u in uset1 if v in u]
-            pair2=[u for u in uset2 if v in u]
-            if len(pair1)!=2 or len(pair2)!=2:
-                continue
-            p1cols={pair1[0].col, pair1[1].col}
-            if p1cols != {pair2[0].col, pair2[1].col}:
-                continue
-            for r in [i for i in range(9) if i!=row1 and i!=row2]:
-                if elim_values(v, [u for u in unknowns.values() if u.row==r and u.col in p1cols]):
-                    dbg("xwing",f"{v=} {r=} {p1cols=}")
-                    return True
-    for col1, col2 in itertools.combinations(range(9),2):
-        uset1={u for u in unknowns.values() if u.col==col1}
-        uset2={u for u in unknowns.values() if u.col==col2}
-        for v in range(1,10):
-            pair1=[u for u in uset1 if v in u]
-            pair2=[u for u in uset2 if v in u]
-            if len(pair1)!=2 or len(pair2)!=2:
-                continue
-            p1rows={pair1[0].row, pair1[1].row}
-            if p1rows != {pair2[0].row, pair2[1].row}:
-                continue
-            for c in [i for i in range(9) if i!=col1 and i!=col2]:
-                if elim_values(v, [u for u in unknowns.values() if u.col==c and u.row in p1rows]):
-                    dbg("xwing",f"{v=} {c=} {p1rows=}")
-                    return True
-    return False
-'''
 
 def find_locked(known, unknowns):
     """Naked pairs, triples, and quads in rows, columns, or boxes.
@@ -398,6 +378,7 @@ def solve(puzzle):
         find_boxex,
         find_rcex,
         find_fish,
+        find_skyscrapers,
     )
     known = parse_puzzle(puzzle)
     validate_puzzle(known)
@@ -452,11 +433,12 @@ def main():
             r=solve(line)
             if not r[0]:
                 fails+=1
-                results.append(f'failed:\ni={line}\no={r[1]}\n')
+                results.append(f'failed:\ni={line}\no={r[1]}')
             else:
                 passes+=1
                 results.append(f'passed:\ni={line}\no={r[1]}')
 
+    results.append(f'{passes=} {fails=}')
     output = "\n".join(results)
     if output:
         output += "\n"
