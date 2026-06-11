@@ -6,9 +6,8 @@ import sys
 
 log = logging.getLogger(__name__)
 
-DEBUG_SECTIONS = frozenset({
-    "solve", "assign", "solver", "singles", "unaries", "locked", "boxex", "rcex", "elim",
-})
+DEBUG_SECTIONS = frozenset({ "solve", "assign", "solver", "singles",
+                             "unaries", "locked", "boxex", "rcex", "elim","xwing", })
 _debug_sections = None
 
 
@@ -154,6 +153,7 @@ def find_rcex(known, unknowns):
                     return True
     return False
 
+        
 
 def find_boxex(known, unknowns):
     """Box/line reduction (locked candidates type 1).
@@ -181,7 +181,75 @@ def find_boxex(known, unknowns):
                     return True
     return False
 
+def find_xwing(known,unknowns):
+    """Find xwings
+    
+    https://sudoku.coach/en/learn/x-wing
+    """
+    dbg("xwing",f'{format_known(known)}')
+    for row1, row2 in itertools.combinations(range(9),2):
+        uset1={u for u in unknowns.values() if u.row==row1}
+        if len(uset1)<2:
+            continue
+        uset2={u for u in unknowns.values() if u.row==row2}
+        if len(uset2)<2:
+            continue
+        for pair1 in itertools.combinations(uset1,2):
+            p2a=[u for u in uset2 if u.col==pair1[0].col]
+            p2b=[u for u in uset2 if u.col==pair1[1].col]
+            if not p2a or not p2b:
+                continue
+            pair2=(p2a.pop(), p2b.pop())
+            for v in pair1[0]&pair1[1]:
+                if not v in pair2[0]&pair2[1]:
+                    continue
+                if  len(uset1)>2 and v in set.intersection(*[u for u in uset1
+                                                             if not u.idx in [pair1[0].idx, pair1[1].idx]]):
+                    continue
+                if  len(uset2)>2 and v in set.intersection(*[u for u in uset2
+                                                             if not u.idx in [pair2[0].idx, pair2[1].idx]]):
+                    continue
+                for r in [i for i in range(9) if i!=row1 and i!=row2]:
+                    dbg("xwing",f'{box_format(known)}')
+                    if elim_values(v, [u for u in unknowns.values() if u.row==r and
+                                       ((u.col==pair1[0].col) or
+                                       (u.col==pair1[1].col))]):
+                        dbg("xwing",f"{v=} {r=} c1={pair1[0].col} c2={pair1[1].col}")
+                        return True
+                    
+    for col1, col2 in itertools.combinations(range(9),2):
+        uset1={u for u in unknowns.values() if u.col==col1}
+        if len(uset1)<2:
+            continue
+        uset2={u for u in unknowns.values() if u.col==col2}
+        if len(uset2)<2:
+            continue
+        for pair1 in itertools.combinations(uset1,2):
+            p2a=[u for u in uset2 if u.row==pair1[0].row]
+            p2b=[u for u in uset2 if u.row==pair1[1].row]
+            if not p2a or not p2b:
+                continue
+            pair2=(p2a.pop(), p2b.pop())
+            for v in pair1[0]&pair1[1]:
+                if not v in pair2[0]&pair2[1]:
+                    continue
+                if  len(uset1)>2 and v in set.intersection(*[u for u in uset1
+                                                             if not u.idx in [pair1[0].idx, pair1[1].idx]]):
+                    continue
+                if  len(uset2)>2 and v in set.intersection(*[u for u in uset2
+                                                             if not u.idx in [pair2[0].idx, pair2[1].idx]]):
+                    continue
+                for c in [i for i in range(9) if i!=col1 and i!=col2]:
+                    dbg("xwing",f'{box_format(known)}')
+                    if elim_values(v, [u for u in unknowns.values() if u.col==c and
+                                       ((u.row==pair1[0].row) or
+                                       (u.row==pair1[1].row))]):
+                        dbg("xwing",f"{v=} {c=} r1={pair1[0].row} r2={pair1[1].row}")
+                        return True
+                    
+    return False
 
+                
 def find_locked(known, unknowns):
     """Naked pairs, triples, and quads in rows, columns, or boxes.
 
@@ -316,6 +384,7 @@ def solve(puzzle):
         find_locked,
         find_boxex,
         find_rcex,
+        find_xwing,
     )
     known = parse_puzzle(puzzle)
     validate_puzzle(known)
