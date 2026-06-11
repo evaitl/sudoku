@@ -197,22 +197,38 @@ def find_skyscrapers(known,unknowns):
             pair=[u for u in unknowns.values() if u.row==row and v in u]
             if len(pair)!=2:
                 continue
-            for s1 in [u for u in unknowns.values() if u.idx != pair[0].idx and u.col==pair[0].col and v in u]:
-                for s2 in [u for u in unknowns.values() if u.idx != pair[1].idx and u.col == pair[1].col and v in u]:
+            if sum(1 for u in unknowns.values() if u.col==pair[0].col and v in u)!=2:
+                continue
+            if sum(1 for u in unknowns.values() if u.col==pair[1].col and v in u)!=2:
+                continue
+            for s1 in [u for u in unknowns.values()
+                       if u.idx != pair[0].idx and u.col==pair[0].col and v in u]:
+                for s2 in [u for u in unknowns.values()
+                           if u.idx != pair[1].idx and u.col == pair[1].col and v in u]:
+                    if s1.row==s2.row:
+                        continue                    
                     intersection = (linked_set(s1,unknowns) & linked_set(s2,unknowns))-set(pair)
                     if elim_values(v,intersection):
-                        dbg("skyscraper",f'skyscraper: {v=} {intersection=}')
+                        dbg("skyscraper",f'skyscraper: {v=} {pair=} {s1=} {s2=}')
                         return True
     for col in range(9):
         for v in range(1,10):
             pair=[u for u in unknowns.values() if u.col==col and v in u]
             if len(pair)!=2:
                 continue
-            for s1 in [u for u in unknowns.values() if u.idx != pair[0].idx and u.row==pair[0].row and v in u]:
-                for s2 in [u for u in unknowns.values() if u.idx != pair[1].idx and u.row == pair[1].row and v in u]:
-                    intersection = (linked_set(s1,unknowns) & linked_set(s2.unknowns)) - set(pair)
+            if sum(1 for u in unknowns.values() if u.row==pair[0].row and v in u)!=2:
+                continue
+            if sum(1 for u in unknowns.values() if u.row==pair[1].row and v in u)!=2:
+                continue
+            for s1 in [u for u in unknowns.values()
+                       if u.idx != pair[0].idx and u.row==pair[0].row and v in u]:
+                for s2 in [u for u in unknowns.values()
+                           if u.idx != pair[1].idx and u.row == pair[1].row and v in u]:
+                    if s1.col==s2.col:
+                        continue                    
+                    intersection = (linked_set(s1,unknowns) & linked_set(s2,unknowns))-set(pair)
                     if elim_values(v,intersection):
-                        dbg("skyscraper",f'skyscraper: {v=} {intersection=}')
+                        dbg("skyscraper",f'skyscraper: {v=} {pair=} {s1=} {s2=}')
                         return True
     return False
 
