@@ -71,44 +71,6 @@ def add_known(known, unknowns, idx, value):
             print(f'error at {u.idx}: {known}\n{unknowns}\n')
         assert len(u)
 
-def find_singles(known, unknowns):
-    """Assign cells with only one remaining candidate. Return True if one was found."""
-    for u in unknowns.values():
-        if len(u) == 1:
-            dbg("singles", "found single %s", u)
-            add_known(known, unknowns, u.idx, next(iter(u)))
-            return True
-    return False
-
-
-def peer_candidates(unknowns, u, attr):
-    """Union of candidates from other unknowns in u's row, col, or box."""
-    mine = getattr(u, attr)
-    return set().union(*(o for o in unknowns.values()
-                         if getattr(o, attr) == mine and o.idx != u.idx))
-
-
-def unit_unknowns(unknowns, u, attr):
-    """Unknown cells sharing u's row, col, or box."""
-    mine = getattr(u, attr)
-    return [o for o in unknowns.values() if getattr(o, attr) == mine]
-
-
-def find_unaries(known, unknowns):
-    """Assign cells that alone hold a value in their row, column, or box."""
-    for u in unknowns.values():
-        for attr in ("row", "col", "box"):
-            if len(unit_unknowns(unknowns, u, attr)) < 2:
-                continue
-            s = peer_candidates(unknowns, u, attr)
-            for v in u:
-                if v not in s:
-                    dbg("unaries", "found unary %s %d=%d at %d",
-                        attr, getattr(u, attr), v, u.idx)
-                    add_known(known, unknowns, u.idx, v)
-                    return True
-    return False
-
 
 def elim_values(vi, gi):
     """Remove values from candidate sets. Return True if any candidate changed."""
@@ -131,30 +93,71 @@ def elim_values(vi, gi):
     return ret
 
 
-def find_rcex(known, unknowns):
-    """Row/column claiming (locked candidates type 2).
+def peer_candidates(unknowns, u, attr):
+    """Union of candidates from other unknowns in u's row, col, or box."""
+    mine = getattr(u, attr)
+    return set().union(*(o for o in unknowns.values()
+                         if getattr(o, attr) == mine and o.idx != u.idx))
 
-    When a digit appears in only one box along a row or column, remove it
-    from the other rows or columns of that box.
-    """
+
+def unit_unknowns(unknowns, u, attr):
+    """Unknown cells sharing u's row, col, or box."""
+    mine = getattr(u, attr)
+    return [o for o in unknowns.values() if getattr(o, attr) == mine]
+
+
+def linked_set(cs, unknowns):
+    """Return a set of all candidate sets that are linked to cs."""
+    return {u for u in unknowns.values() if u.row == cs.row or u.col == cs.col or u.box == cs.box} - {cs}
+
+
+def find_singles(known, unknowns):
+    """Assign cells with only one remaining candidate. Return True if one was found."""
     for u in unknowns.values():
-        for v in u:
-            if not any( 1 for u2 in unknowns.values() if u2.box !=
-                        u.box and u.row == u2.row and v in u2 ):
-                if elim_values(v, [u2 for u2 in unknowns.values() if u2.box ==
-                                   u.box and u2.row != u.row] ):
-                    dbg("rcex", "row %d value %d in box %d", u.row, v, u.box)
-                    return True
-            if not any(1 for u2 in unknowns.values() if u2.box !=
-                       u.box and u.col == u2.col and v in u2 ):
-                if elim_values(v, [ u2 for u2 in unknowns.values() if
-                                    u2.box == u.box and u2.col !=
-                                    u.col ], ):
-                    dbg("rcex", "col %d value %d in box %d", u.col, v, u.box)
+        if len(u) == 1:
+            dbg("singles", "found single %s", u)
+            add_known(known, unknowns, u.idx, next(iter(u)))
+            return True
+    return False
+
+
+def find_unaries(known, unknowns):
+    """Assign cells that alone hold a value in their row, column, or box."""
+    for u in unknowns.values():
+        for attr in ("row", "col", "box"):
+            if len(unit_unknowns(unknowns, u, attr)) < 2:
+                continue
+            s = peer_candidates(unknowns, u, attr)
+            for v in u:
+                if v not in s:
+                    dbg("unaries", "found unary %s %d=%d at %d",
+                        attr, getattr(u, attr), v, u.idx)
+                    add_known(known, unknowns, u.idx, v)
                     return True
     return False
 
-        
+
+def find_locked(known, unknowns):
+    """Naked pairs, triples, and quads in rows, columns, or boxes.
+
+    When N cells in a unit share exactly N candidates, remove those
+    candidates from the other cells in the unit.
+    """
+    for attr in ("row", "col", "box"):
+        for unit in range(9):
+            cells = [u for u in unknowns.values() if getattr(u, attr) == unit]
+            for group_size in range(2, min(5, len(cells))):
+                for group in itertools.combinations(cells, group_size):
+                    values = set.union(*group)
+                    if len(values) != group_size:
+                        continue
+                    others = [u for u in cells if u not in group]
+                    if elim_values(values, others):
+                        dbg("locked", "%s %d size %d cells %s values %s",
+                            attr, unit, group_size, [u.idx for u in group], values)
+                        return True
+    return False
+
 
 def find_boxex(known, unknowns):
     """Box/line reduction (locked candidates type 1).
@@ -164,153 +167,118 @@ def find_boxex(known, unknowns):
     """
     for u in unknowns.values():
         for v in u:
-            if not any( 1 for u2 in unknowns.values()
-                        if u2.box == u.box and
-                        u2.row != u.row and
-                        v in u2 ):
-                if elim_values(v, [ u2 for u2 in unknowns.values() if
-                                    u2.box != u.box and u2.row ==
-                                    u.row ]):
+            if not any(1 for u2 in unknowns.values()
+                       if u2.box == u.box and u2.row != u.row and v in u2):
+                if elim_values(v, [u2 for u2 in unknowns.values()
+                                   if u2.box != u.box and u2.row == u.row]):
                     dbg("boxex", "row %d value %d in box %d", u.row, v, u.box)
                     return True
-            if not any(1 for u2 in unknowns.values() if u2.box ==
-                       u.box and u2.col != u.col and v in u2):
-                if elim_values(v, [ u2 for u2 in unknowns.values() if
-                                    u2.box != u.box and u2.col ==
-                                    u.col ] ):
+            if not any(1 for u2 in unknowns.values()
+                       if u2.box == u.box and u2.col != u.col and v in u2):
+                if elim_values(v, [u2 for u2 in unknowns.values()
+                                   if u2.box != u.box and u2.col == u.col]):
                     dbg("boxex", "col %d value %d in box %d", u.col, v, u.box)
                     return True
     return False
 
-def linked_set(cs, unknowns):
-    """Return a set of all candidate sets that are linked to cs
-    """
-    return {u for u in unknowns.values() if u.row==cs.row or u.col==cs.col or u.box==cs.box} - {cs}
 
-def find_skyscrapers(known,unknowns):
-    """
+def find_rcex(known, unknowns):
+    """Row/column claiming (locked candidates type 2).
 
-    https://sudoku.coach/en/learn/skyscraper
+    When a digit appears in only one box along a row or column, remove it
+    from the other rows or columns of that box.
     """
-    for row in range(9):
-        for v in range(1,10):
-            pair=[u for u in unknowns.values() if u.row==row and v in u]
-            if len(pair)!=2:
-                continue
-            if sum(1 for u in unknowns.values() if u.col==pair[0].col and v in u)!=2:
-                continue
-            if sum(1 for u in unknowns.values() if u.col==pair[1].col and v in u)!=2:
-                continue
-            for s1 in [u for u in unknowns.values()
-                       if u.idx != pair[0].idx and u.col==pair[0].col and v in u]:
-                for s2 in [u for u in unknowns.values()
-                           if u.idx != pair[1].idx and u.col == pair[1].col and v in u]:
-                    if s1.row==s2.row:
-                        continue                    
-                    intersection = (linked_set(s1,unknowns) & linked_set(s2,unknowns))-set(pair)
-                    if elim_values(v,intersection):
-                        dbg("skyscraper",f'skyscraper: {v=} {pair=} {s1=} {s2=}')
-                        return True
-    for col in range(9):
-        for v in range(1,10):
-            pair=[u for u in unknowns.values() if u.col==col and v in u]
-            if len(pair)!=2:
-                continue
-            if sum(1 for u in unknowns.values() if u.row==pair[0].row and v in u)!=2:
-                continue
-            if sum(1 for u in unknowns.values() if u.row==pair[1].row and v in u)!=2:
-                continue
-            for s1 in [u for u in unknowns.values()
-                       if u.idx != pair[0].idx and u.row==pair[0].row and v in u]:
-                for s2 in [u for u in unknowns.values()
-                           if u.idx != pair[1].idx and u.row == pair[1].row and v in u]:
-                    if s1.col==s2.col:
-                        continue                    
-                    intersection = (linked_set(s1,unknowns) & linked_set(s2,unknowns))-set(pair)
-                    if elim_values(v,intersection):
-                        dbg("skyscraper",f'skyscraper: {v=} {pair=} {s1=} {s2=}')
-                        return True
+    for u in unknowns.values():
+        for v in u:
+            if not any(1 for u2 in unknowns.values()
+                       if u2.box != u.box and u.row == u2.row and v in u2):
+                if elim_values(v, [u2 for u2 in unknowns.values()
+                                   if u2.box == u.box and u2.row != u.row]):
+                    dbg("rcex", "row %d value %d in box %d", u.row, v, u.box)
+                    return True
+            if not any(1 for u2 in unknowns.values()
+                       if u2.box != u.box and u.col == u2.col and v in u2):
+                if elim_values(v, [u2 for u2 in unknowns.values()
+                                   if u2.box == u.box and u2.col != u.col]):
+                    dbg("rcex", "col %d value %d in box %d", u.col, v, u.box)
+                    return True
     return False
 
-def find_fish(known,unknowns):
-    """xwing, swordfish, etcetera
 
+def find_fish(known, unknowns):
+    """xwing, swordfish, etcetera
 
     A 2x2 is xwing. A 3x3 is swordfish. No idea what 4 or more are
     called. We could actually do 1x1 here, but that should be picked
     up earlier.
-
     """
-    for fish_size in range(2,9):
-        for rows in itertools.combinations(range(9),fish_size):
-            row_sets=[[u for u in unknowns.values() if u.row==row] for row in rows]
-            for v in range(1,10):
-                # A row must be nonempty for set.union to work. v must be in each row. 
+    for fish_size in range(2, 9):
+        for rows in itertools.combinations(range(9), fish_size):
+            row_sets = [[u for u in unknowns.values() if u.row == row] for row in rows]
+            for v in range(1, 10):
                 if not all(r for r in row_sets) or not all(v in set.union(*r) for r in row_sets):
                     continue
-                col_set=set(u.col for r in row_sets for u in r if v in u)
-                # The set of columns of csets containing v must be fish_size
-                if len(col_set)!=fish_size:
+                col_set = set(u.col for r in row_sets for u in r if v in u)
+                if len(col_set) != fish_size:
                     continue
-                remove_set=[u for u in unknowns.values() if (not u.row in rows) and u.col in col_set]
+                remove_set = [u for u in unknowns.values() if u.row not in rows and u.col in col_set]
                 if elim_values(v, remove_set):
                     dbg("fish", f'fish: {fish_size=} {v=} {rows=} {col_set=}')
                     return True
-    # Swapping row/cols won't actually find anything else.             
     return False
 
-def find_locked(known, unknowns):
-    """Naked pairs, triples, and quads in rows, columns, or boxes.
 
-    When N cells in a unit share exactly N candidates, remove those
-    candidates from the other cells in the unit.
+def find_skyscrapers(known, unknowns):
+    """Skyscrapers
+
+    https://sudoku.coach/en/learn/skyscraper
     """
-    for r in range(9):
-        rs = [u for u in unknowns.values() if u.row == r]
-        for group_size in range(2, min(5,len(rs))):
-            for group in itertools.combinations(rs, group_size):
-                sug = set.union(*group)
-                if len(sug) == group_size:
-                    # Found a locked set. Eliminate elements from everthing else in row.
-                    if elim_values( [v for v in sug],
-                                    [ u for u in
-                                      unknowns.values() if u.row == r
-                                      and (not u in group)]):
-                        dbg("locked", "row %d size %d cells %s values %s",
-                            r, group_size, [u.idx for u in group], sug)
-                        return True
-    for c in range(9):
-        cs = [u for u in unknowns.values() if u.col == c]
-        for group_size in range(2, min(5,len(cs))):
-            for group in itertools.combinations(cs, group_size):
-                sug = set.union(*group)
-                if len(sug) == group_size:
-                    # Found a group. Eliminate group elements from everthing else in col.
-                    if elim_values(
-                        [v for v in sug],
-                        [
-                            u
-                            for u in unknowns.values()
-                            if u.col == c and (not u in group)
-                        ],
-                    ):
-                        dbg("locked", "col %d size %d cells %s values %s",
-                            c, group_size, [u.idx for u in group], sug)
-                        return True
-    for b in range(9):
-        bs = [u for u in unknowns.values() if u.box == b]
-        for group_size in range(2, min(5,len(bs))):
-            for group in itertools.combinations(bs, group_size):
-                sug = set.union(*group)
-                if len(sug) == group_size:
-                    # Found a group. Eliminate group elements from everthing else in box.
-                    if elim_values( [v for v in sug],
-                                    [ u for u in
-                                      unknowns.values() if u.box == b and
-                                      (not u in group) ], ):
-                        dbg("locked", "box %d size %d cells %s values %s",
-                            b, group_size, [u.idx for u in group], sug)
-                        return True
+    def value_pair(attr, unit, v):
+        """Return the two unknowns with v in row/col unit, or None."""
+        cells = [u for u in unknowns.values() if getattr(u, attr) == unit and v in u]
+        return cells if len(cells) == 2 else None
+
+    def strong_in(attr, u, v):
+        """True when u's row/col contains exactly two candidates for v."""
+        unit = getattr(u, attr)
+        return sum(1 for o in unknowns.values() if getattr(o, attr) == unit and v in o) == 2
+
+    def other_link(link_attr, u, v):
+        """Other unknowns sharing u's row/col strong link for v."""
+        link = getattr(u, link_attr)
+        return [o for o in unknowns.values()
+                if o.idx != u.idx and getattr(o, link_attr) == link and v in o]
+
+    for base, link in (("row", "col"), ("col", "row")):
+        for unit in range(9):
+            for v in range(1, 10):
+                pair = value_pair(base, unit, v)
+                if not pair or not all(strong_in(link, u, v) for u in pair):
+                    continue
+                for s1 in other_link(link, pair[0], v):
+                    for s2 in other_link(link, pair[1], v):
+                        if getattr(s1, base) == getattr(s2, base):
+                            continue
+                        intersection = (linked_set(s1, unknowns) & linked_set(s2, unknowns)) - set(pair)
+                        if elim_values(v, intersection):
+                            dbg("skyscraper", "skyscraper: v=%d pair=%s s1=%s s2=%s", v, pair, s1, s2)
+                            return True
+    return False
+
+
+def find_kites(known, unknowns):
+    """Two String Kites
+    https://sudoku.coach/en/learn/two-string-kite
+
+    Find a horizontal strong pair that has one end point in the same
+    box as an overlapping vertical strong pair. Anything in the
+    intersection of the linked_sets of the non-box endpoints can't be
+    the overlapping value. Make sense?
+    """
+    for row in range(9):
+        for v in range(1, 10):
+            pass
+            #XXX
     return False
 
 
