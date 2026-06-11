@@ -7,7 +7,7 @@ import sys
 log = logging.getLogger(__name__)
 
 DEBUG_SECTIONS = frozenset({ "solve", "assign", "solver", "singles",
-                             "unaries", "locked", "boxex", "rcex", "elim","xwing", })
+                             "unaries", "locked", "boxex", "rcex", "elim","fish", })
 _debug_sections = None
 
 
@@ -181,12 +181,55 @@ def find_boxex(known, unknowns):
                     return True
     return False
 
+
+def find_fish(known,unknowns):
+    """xwing, swordfish, etcetera
+
+
+    A 2x2 is xwing. A 3x3 is swordfish. No idea what 4 or more are
+    called. We could actually do 1x1 here, but that should be picked
+    up earlier.
+
+    """
+    for fish_size in range(2,9):
+        for rows in itertools.combinations(range(9),fish_size):
+            row_sets=[[u for u in unknowns.values() if u.row==row] for row in rows]
+            for v in range(1,10):
+                # A row must be nonempty for set.union to work. v must be in each row. 
+                if not all(r for r in row_sets) or not all(v in set.union(*r) for r in row_sets):
+                    continue
+                col_set=set(u.col for r in row_sets for u in r if v in u)
+                # The set of columns of csets containing v must be fish_size
+                if len(col_set)!=fish_size:
+                    continue
+                remove_set=[u for u in unknowns.values() if (not u.row in rows) and u.col in col_set]
+                if elim_values(v, remove_set):
+                    dbg("fish", f'fish: {fish_size=} {v=} {rows=} {col_set=}')
+                    return True
+    # What's good for rows, is good for columns. 
+    for fish_size in range(2,9):
+        for cols in itertools.combinations(range(9),fish_size):
+            col_sets=[[u for u in unknowns.values() if u.col==col] for col in cols]
+            for v in range(1,10):
+                # A row must be nonempty for set.union to work. v must be in each row. 
+                if not all(c for c in col_sets) or not all(v in set.union(*c) for c in col_sets):
+                    continue
+                row_set=set(u.row for c in col_sets for u in c if v in u)
+                # The set of rows of csets containing v must be fish_size
+                if len(row_set)!=fish_size:
+                    continue
+                remove_set=[u for u in unknowns.values() if (not u.col in cols) and u.row in row_set]
+                if elim_values(v, remove_set):
+                    dbg("fish", f'fish: {fish_size=} {v=} {cols=} {row_set=}')
+                    return True
+    return False
+
+'''                
 def find_xwing(known,unknowns):
     """Find xwings
     
     https://sudoku.coach/en/learn/x-wing
     """
-#    dbg("xwing",f'{format_known(known)}')
     for row1, row2 in itertools.combinations(range(9),2):
         uset1={u for u in unknowns.values() if u.row==row1}
         uset2={u for u in unknowns.values() if u.row==row2}
@@ -199,7 +242,6 @@ def find_xwing(known,unknowns):
             if p1cols != {pair2[0].col, pair2[1].col}:
                 continue
             for r in [i for i in range(9) if i!=row1 and i!=row2]:
-#                dbg("xwing",f'{box_format(known)}')
                 if elim_values(v, [u for u in unknowns.values() if u.row==r and u.col in p1cols]):
                     dbg("xwing",f"{v=} {r=} {p1cols=}")
                     return True
@@ -215,11 +257,11 @@ def find_xwing(known,unknowns):
             if p1rows != {pair2[0].row, pair2[1].row}:
                 continue
             for c in [i for i in range(9) if i!=col1 and i!=col2]:
-#                dbg("xwing",f'{box_format(known)}')
                 if elim_values(v, [u for u in unknowns.values() if u.col==c and u.row in p1rows]):
                     dbg("xwing",f"{v=} {c=} {p1rows=}")
                     return True
     return False
+'''
 
 def find_locked(known, unknowns):
     """Naked pairs, triples, and quads in rows, columns, or boxes.
@@ -355,7 +397,7 @@ def solve(puzzle):
         find_locked,
         find_boxex,
         find_rcex,
-        find_xwing,
+        find_fish,
     )
     known = parse_puzzle(puzzle)
     validate_puzzle(known)
