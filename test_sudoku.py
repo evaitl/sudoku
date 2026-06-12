@@ -345,6 +345,35 @@ class TestFindColoring(unittest.TestCase):
         self.assertFalse(sudoku.find_coloring([0] * 81, unknowns))
 
 
+class TestFindGuess(unittest.TestCase):
+    def test_short_puzzles_solve_without_guessing(self):
+        sudoku.reset_solver_counts()
+        puzzle = load_puzzles("short.txt")[0]
+        solved, result = solve_with_timeout(puzzle)
+        self.assertTrue(solved)
+        self.assertTrue(is_valid_solution(result))
+        self.assertEqual(sudoku.solver_counts().get("find_guess", 0), 0)
+
+    def test_find_guess_returns_false_for_impossible_candidates(self):
+        """Two cells in the same row cannot both be 1."""
+        unknowns = sudoku.Unknowns()
+        unknowns.add(sudoku.CSet({1}, 0))
+        unknowns.add(sudoku.CSet({1}, 1))
+        for idx in range(2, 81):
+            unknowns.add(sudoku.CSet({2, 3, 4, 5, 6, 7, 8, 9}, idx))
+
+        self.assertFalse(sudoku.find_guess([0] * 81, unknowns))
+
+    def test_super_hard_puzzles_solve_with_backtracking(self):
+        puzzles = load_puzzles("super_hard.txt")
+        self.assertEqual(len(puzzles), 4)
+        for puzzle in puzzles:
+            with self.subTest(puzzle=puzzle):
+                solved, result = solve_with_timeout(puzzle, timeout=5.0)
+                self.assertTrue(solved)
+                self.assertTrue(is_valid_solution(result))
+
+
 class TestCliExitCode(unittest.TestCase):
     SUDOKU = ROOT / "sudoku.py"
 
@@ -366,7 +395,7 @@ class TestCliExitCode(unittest.TestCase):
         with tempfile.NamedTemporaryFile(
             "w", encoding="utf-8", dir=ROOT, delete=False, suffix=".txt"
         ) as handle:
-            handle.write(f"{good}\n{'.' * 81}\n")
+            handle.write(f"{good}\n{'11' + '.' * 79}\n")
             fail_file = Path(handle.name).name
         try:
             result = self.run_cli(fail_file)

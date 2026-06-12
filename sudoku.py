@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 DEBUG_SECTIONS = frozenset({ "solve", "assign", "solver", "singles",
                              "unaries", "locked", "hidden", "boxline", "linebox",
                              "elim","fish", "skyscraper", "kite",
-                             "crane", "xywing", "coloring",})
+                             "crane", "xywing", "coloring", "guess",})
 _debug_sections = None
 
 
@@ -809,6 +809,76 @@ def find_coloring(known, unknowns):
     return False
 
 
+@count_solver
+def find_guess(known, unknowns):
+    """Complete the puzzle by guessing and backtracking when logic stalls."""
+    if not unknowns:
+        return False
+
+    def assign_cands(state, cmap, idx, value):
+        row, col, box = get_rcb(idx)
+        state[idx] = value
+        new_c = {}
+        for i, candidates in cmap.items():
+            if i == idx:
+                continue
+            remaining = candidates.copy()
+            r, c, b = get_rcb(i)
+            if row == r or col == c or box == b:
+                remaining.discard(value)
+            if not remaining:
+                return None
+            new_c[i] = remaining
+        return new_c
+
+    def propagate(state, cmap):
+        while True:
+            progress = False
+            for idx, values in list(cmap.items()):
+                if len(values) != 1:
+                    continue
+                branch = list(state)
+                next_c = assign_cands(branch, cmap, idx, next(iter(values)))
+                if next_c is None:
+                    return None
+                state[:] = branch
+                cmap = next_c
+                progress = True
+                break
+            if not progress:
+                return cmap
+
+    def search(state, cmap):
+        cmap = propagate(state, cmap)
+        if cmap is None:
+            return None
+        if not cmap:
+            return state
+        idx = min(cmap, key=lambda i: len(cmap[i]))
+        for value in cmap[idx]:
+            branch = list(state)
+            next_c = assign_cands(branch, cmap, idx, value)
+            if next_c is None:
+                continue
+            result = search(branch, next_c)
+            if result is not None:
+                return result
+        return None
+
+    cmap = {u.idx: set(u) for u in unknowns}
+    solution = search(list(known), cmap)
+    if solution is None:
+        return False
+
+    filled = 0
+    for idx in list(unknowns.by_idx):
+        known[idx] = solution[idx]
+        unknowns.pop(idx)
+        filled += 1
+    dbg("guess", "backtracking filled %d cells", filled)
+    return True
+
+
 SOLVERS = (
     find_singles,
     find_unaries,
@@ -822,6 +892,7 @@ SOLVERS = (
     find_xywing,
     find_crane,
     find_coloring,
+    find_guess,
 )
 
 
@@ -899,7 +970,7 @@ def run_solvers(solvers, known, unknowns):
 
 
 def solve(puzzle):
-    """Solve a puzzle using logical deduction.
+    """Solve a puzzle using logical deduction, then guess-and-backtrack if needed.
 
     Return (solved, grid) where solved is True when every cell is filled.
     """
