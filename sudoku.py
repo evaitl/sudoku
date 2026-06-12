@@ -4,6 +4,7 @@ import itertools
 import argparse
 import logging
 import sys
+import time
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ def dbg(section, msg, *args):
 
 
 _solver_counts = {}
+_solver_times = {}
 _solver_names = []
 
 
@@ -34,21 +36,27 @@ def count_solver(fn):
     name = fn.__name__
     _solver_names.append(name)
     _solver_counts[name] = 0
+    _solver_times[name] = 0.0
 
     @functools.wraps(fn)
     def wrapper(known, unknowns):
-        if fn(known, unknowns):
+        start = time.perf_counter()
+        try:
+            result = fn(known, unknowns)
+        finally:
+            _solver_times[name] += time.perf_counter() - start
+        if result:
             _solver_counts[name] += 1
-            return True
-        return False
+        return result
 
     return wrapper
 
 
 def reset_solver_counts():
-    """Reset per-solver success counters to zero."""
+    """Reset per-solver success counters and timings to zero."""
     for name in _solver_names:
         _solver_counts[name] = 0
+        _solver_times[name] = 0.0
 
 
 def solver_counts():
@@ -56,9 +64,19 @@ def solver_counts():
     return dict(_solver_counts)
 
 
+def solver_times():
+    """Return a copy of per-solver elapsed seconds."""
+    return dict(_solver_times)
+
+
 def format_solver_counts(counts):
     """Format solver counters for display."""
     return " ".join(f"{name}={counts[name]}" for name in _solver_names)
+
+
+def format_solver_times(times):
+    """Format per-solver elapsed seconds for display."""
+    return " ".join(f"{name}={times[name]:.3f}s" for name in _solver_names)
 
 
 class CSet(set):
@@ -746,6 +764,7 @@ def main():
 
     results = []
     batch_solver_counts = {name: 0 for name in _solver_names}
+    batch_solver_times = {name: 0.0 for name in _solver_names}
     with open(args.input_file, encoding="utf-8") as f:
         passes,fails=0,0
         for line in f:
@@ -758,6 +777,8 @@ def main():
             counts = format_solver_counts(puzzle_counts)
             for name, count in puzzle_counts.items():
                 batch_solver_counts[name] += count
+            for name, elapsed in solver_times().items():
+                batch_solver_times[name] += elapsed
             if not r[0]:
                 fails+=1
                 results.append(f'failed:\ni={line}\no={r[1]}\nc={counts}')
@@ -767,6 +788,7 @@ def main():
 
     results.append(f'{passes=} {fails=}')
     results.append(format_solver_counts(batch_solver_counts))
+    results.append(format_solver_times(batch_solver_times))
     output = "\n".join(results)
     if output:
         output += "\n"
