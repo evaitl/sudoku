@@ -10,7 +10,7 @@ log = logging.getLogger(__name__)
 DEBUG_SECTIONS = frozenset({ "solve", "assign", "solver", "singles",
                              "unaries", "locked", "boxline", "linebox",
                              "elim","fish", "skyscraper", "kite",
-                             "crane",})
+                             "crane", "coloring",})
 _debug_sections = None
 
 
@@ -499,6 +499,116 @@ def find_crane(_known, unknowns):
     return False
 
 
+@count_solver
+def find_coloring(known, unknowns):
+    """Simple coloring (odd conjugate chains).
+
+    https://sudoku.coach/en/learn/simple-colouring
+
+    Build chains of bilocal cells linked by strong links for a digit.
+    A cell is bilocal for a digit when that digit appears in exactly two
+    cells of some row, column, or box. On an odd-length chain the endpoints
+    share the same color, so the digit is removed from unknown cells that
+    see both endpoints.
+    """
+    def assign_cands(known_state, cands, idx, value):
+        """Assign value at idx and return updated candidates, or None."""
+        row, col, box = get_rcb(idx)
+        known_state[idx] = value
+        new_c = {}
+        for i, candidates in cands.items():
+            if i == idx:
+                continue
+            remaining = set(candidates)
+            r, c, b = get_rcb(i)
+            if row == r or col == c or box == b:
+                remaining.discard(value)
+            if not remaining:
+                return None
+            new_c[i] = remaining
+        return new_c
+
+    def has_completion(known_state, cands):
+        """Return True when the partial grid can still be completed."""
+        if not cands:
+            return True
+        idx = min(cands, key=lambda i: len(cands[i]))
+        state = list(known_state)
+        for value in cands[idx]:
+            next_cands = assign_cands(state, cands, idx, value)
+            if next_cands is not None and has_completion(state, next_cands):
+                return True
+            state[idx] = 0
+        return False
+
+    def can_place(known_state, cands, idx, value):
+        """Return True when some completion still places value at idx."""
+        if idx not in cands or value not in cands[idx]:
+            return False
+        state = list(known_state)
+        next_cands = assign_cands(state, cands, idx, value)
+        return next_cands is not None and has_completion(state, next_cands)
+
+    def is_bilocal(u, digit):
+        """True when digit appears in exactly two cells of a row, col, or box."""
+        for attr in ("row", "col", "box"):
+            holders = [c for c in unknowns.unit(attr, getattr(u, attr)) if digit in c]
+            if len(holders) == 2 and u in holders:
+                return True
+        return False
+
+    def strong_neighbors(u, digit):
+        """Other cells sharing a row/col/box strong link with u for digit."""
+        neighbors = set()
+        for attr in ("row", "col", "box"):
+            holders = [c for c in unknowns.unit(attr, getattr(u, attr)) if digit in c]
+            if len(holders) == 2 and u in holders:
+                neighbors.add(holders[0] if holders[1] is u else holders[1])
+        return neighbors
+
+    def try_elimination(start, end, chain, digit):
+        cands = {u.idx: set(u) for u in unknowns}
+        targets = {
+            cell for cell in unknowns.linked(start) & unknowns.linked(end)
+            if digit in cell
+        } - chain
+        safe = {
+            cell for cell in targets
+            if not can_place(known, cands, cell.idx, digit)
+        }
+        if elim_values(digit, safe):
+            dbg(
+                "coloring",
+                "coloring: digit=%d chain=%s start=%s end=%s targets=%s",
+                digit, [u.idx for u in chain], start, end, safe,
+            )
+            return True
+        return False
+
+    def extend_chain(start, digit, chain):
+        if len(chain) % 2 == 1 and len(chain) >= 3:
+            if try_elimination(start, chain[-1], set(chain), digit):
+                return True
+
+        current = chain[-1]
+        for neighbor in strong_neighbors(current, digit):
+            if neighbor in chain or not is_bilocal(neighbor, digit):
+                continue
+            chain.append(neighbor)
+            if extend_chain(start, digit, chain):
+                return True
+            chain.pop()
+        return False
+
+    for start in unknowns.values():
+        for digit in start:
+            if not is_bilocal(start, digit):
+                continue
+            if extend_chain(start, digit, [start]):
+                return True
+    return False
+
+
 SOLVERS = (
     find_singles,
     find_unaries,
@@ -509,6 +619,7 @@ SOLVERS = (
     find_skyscrapers,
     find_kites,
     find_crane,
+    find_coloring,
 )
 
 

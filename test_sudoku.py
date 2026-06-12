@@ -58,11 +58,14 @@ class TestShortPuzzles(unittest.TestCase):
 
 class TestShortHardPuzzles(unittest.TestCase):
     EXPECTED_SOLUTIONS = {
-        "..2.1...3..3.....11.892374.874.9213..951...7..167......213.9487.872413.9439.78.12": (
-            "742815693953467821168923745874592136395186274216734958621359487587241369439678512"
+        "........8.....8..18....2.34...78561.61729438558.31674....853496348629157965...823": (
+            "154937268236548971879162534493785612617294385582316749721853496348629157965471823"
         ),
         ".....1........5..16158.234.82165.4.3543..861.967314..875.1.3...39.5.61..186.4..35": (
             "438961752279435861615872349821657493543298617967314528754123986392586174186749235"
+        ),
+        "..2.1...3..3.....11.892374.874.9213..951...7..167......213.9487.872413.9439.78.12": (
+            "742815693953467821168923745874592136395186274216734958621359487587241369439678512"
         ),
         ".....1...........11.8723.4.813.74.2.2753..41.4961.27.3.41238.97.8794.132329.178.4": (
             "762491358934865271158723649813674925275389416496152783641238597587946132329517864"
@@ -70,8 +73,20 @@ class TestShortHardPuzzles(unittest.TestCase):
         ".....1...........11.8923.4.873.14.292153..47.4967.21.3.49238.1..8714.932321...8.4": (
             "962471358734865291158923647873614529215389476496752183649238715587146932321597864"
         ),
+        ".3......2.2..3...1.714.283.1.72483..24956371838....42.8.2..41.34.3.21.8771.38.2.4": (
+            "938157642524836971671492835167248359249563718385719426852974163493621587716385294"
+        ),
         "..1..............1..21.3..4....31.2.....56.1.16.27.......31.54.5137.4...489562137": (
             "631947285894625371752183694945831726327456918168279453276318549513794862489562137"
+        ),
+        "5....1........5..11.26.35.4.613.945292..54163453216789..549.21621956.34.64.132..5": (
+            "584921637396745821172683594861379452927854163453216789735498216219567348648132975"
+        ),
+        ".....1........5..1.126.35.46.13.945229..54163534216789...49.21612956.34.46.132..5": (
+            "853941627946725831712683594681379452297854163534216789375498216129567348468132975"
+        ),
+        ".....1...........11.2..3..4623...157891735462475612.....4197286786324915219856743": (
+            "348571629967248531152963874623489157891735462475612398534197286786324915219856743"
         ),
     }
 
@@ -79,26 +94,12 @@ class TestShortHardPuzzles(unittest.TestCase):
         puzzles = load_puzzles("short_hard.txt")
         self.assertEqual(len(puzzles), 10)
 
-        passes = 0
-        fails = 0
         for puzzle in puzzles:
             solved, result = sudoku.solve(puzzle)
-            if solved:
-                passes += 1
-            else:
-                fails += 1
-
             with self.subTest(puzzle=puzzle):
-                if puzzle in self.EXPECTED_SOLUTIONS:
-                    self.assertTrue(solved)
-                    self.assertEqual(result, self.EXPECTED_SOLUTIONS[puzzle])
-                    self.assertTrue(is_valid_solution(result))
-                else:
-                    self.assertFalse(solved)
-                    self.assertIn(".", result)
-
-        self.assertEqual(passes, len(self.EXPECTED_SOLUTIONS))
-        self.assertEqual(fails, len(puzzles) - len(self.EXPECTED_SOLUTIONS))
+                self.assertTrue(solved)
+                self.assertEqual(result, self.EXPECTED_SOLUTIONS[puzzle])
+                self.assertTrue(is_valid_solution(result))
 
 
 SOLVERS_BEFORE_KITES = (
@@ -211,6 +212,37 @@ class TestFindCrane(unittest.TestCase):
         self.assertFalse(sudoku.find_crane(known, unknowns))
 
 
+class TestFindColoring(unittest.TestCase):
+    COLORING_PUZZLE = (
+        "........8.....8..18....2.34...78561.61729438558.31674....853496348629157965...823"
+    )
+    COLORING_TARGET_IDX = 3
+
+    def test_find_coloring_eliminates_from_odd_chain_endpoints(self):
+        """Real puzzle where an odd chain removes 1 from a witness cell."""
+        known = sudoku.parse_puzzle(self.COLORING_PUZZLE)
+        unknowns = sudoku.create_unknowns(known)
+        run_solvers_to_fixpoint(SOLVERS_BEFORE_CRANES, known, unknowns)
+        target = unknowns.by_idx[self.COLORING_TARGET_IDX]
+
+        self.assertIn(1, target)
+        self.assertTrue(sudoku.find_coloring(known, unknowns))
+        self.assertTrue(sudoku.find_coloring(known, unknowns))
+        self.assertNotIn(1, target)
+
+    def test_find_coloring_needs_odd_chain_length(self):
+        """A two-node bilocal strong link is too short to eliminate."""
+        unknowns = sudoku.Unknowns()
+        specs = {
+            0: {5, 1},
+            1: {5, 2},
+        }
+        for idx, cands in specs.items():
+            unknowns.add(sudoku.CSet(cands, idx))
+
+        self.assertFalse(sudoku.find_coloring([0] * 81, unknowns))
+
+
 class TestCliExitCode(unittest.TestCase):
     SUDOKU = ROOT / "sudoku.py"
 
@@ -228,7 +260,7 @@ class TestCliExitCode(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
 
     def test_exits_one_when_any_puzzle_fails(self):
-        result = self.run_cli("short_hard.txt")
+        result = self.run_cli("hard.txt")
         self.assertEqual(result.returncode, 1)
 
 
