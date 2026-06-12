@@ -103,7 +103,10 @@ class Unknowns:
 
 def box_format(known):
     """Format a grid as nine rows of digits and dots."""
-    return '\n'.join(''.join(str(known[j]) if known[j] else '.' for j in range(i, i+9)) for i in range(0,81,9))
+    return '\n'.join(
+        ''.join(str(known[j]) if known[j] else '.' for j in range(i, i + 9))
+        for i in range(0, 81, 9)
+    )
 
 def get_rcb(idx):
     """Return row, column, and box indices for a cell index (0-80)."""
@@ -184,7 +187,7 @@ def find_unaries(known, unknowns):
     return False
 
 
-def find_locked(known, unknowns):
+def find_locked(_known, unknowns):
     """Naked pairs, triples, and quads in rows, columns, or boxes.
 
     When N cells in a unit share exactly N candidates, remove those
@@ -206,7 +209,7 @@ def find_locked(known, unknowns):
     return False
 
 
-def find_boxex(known, unknowns):
+def find_boxex(_known, unknowns):
     """Box/line reduction (locked candidates type 1).
 
     When a digit appears in only one row or column within a box, remove it
@@ -225,7 +228,7 @@ def find_boxex(known, unknowns):
     return False
 
 
-def find_rcex(known, unknowns):
+def find_rcex(_known, unknowns):
     """Row/column claiming (locked candidates type 2).
 
     When a digit appears in only one box along a row or column, remove it
@@ -244,7 +247,7 @@ def find_rcex(known, unknowns):
     return False
 
 
-def find_fish(known, unknowns):
+def find_fish(_known, unknowns):
     """xwing, swordfish, etcetera
 
     A 2x2 is xwing. A 3x3 is swordfish. No idea what 4 or more are
@@ -267,7 +270,7 @@ def find_fish(known, unknowns):
     return False
 
 
-def find_skyscrapers(known, unknowns):
+def find_skyscrapers(_known, unknowns):
     """Skyscrapers
 
     https://sudoku.coach/en/learn/skyscraper
@@ -298,12 +301,16 @@ def find_skyscrapers(known, unknowns):
                             continue
                         intersection = (unknowns.linked(s1) & unknowns.linked(s2)) - set(pair)
                         if elim_values(v, intersection):
-                            dbg("skyscraper", "skyscraper: v=%d pair=%s s1=%s s2=%s", v, pair, s1, s2)
+                            dbg(
+                                "skyscraper",
+                                "skyscraper: v=%d pair=%s s1=%s s2=%s",
+                                v, pair, s1, s2,
+                            )
                             return True
     return False
 
 
-def find_kites(known, unknowns):
+def find_kites(_known, _unknowns):
     """Two String Kites
     https://sudoku.coach/en/learn/two-string-kite
 
@@ -335,39 +342,34 @@ def parse_puzzle(puzzle):
     return known
 
 
+def _check_no_duplicates(values, label):
+    seen = set()
+    for v in values:
+        if not v:
+            continue
+        if v in seen:
+            raise ValueError(f"conflict: {v} appears twice in {label}")
+        seen.add(v)
+
+
 def validate_puzzle(known):
     """Raise ValueError if initial clues conflict within a row, column, or box."""
     for r in range(9):
-        seen = set()
-        for c in range(9):
-            v = known[r * 9 + c]
-            if not v:
-                continue
-            if v in seen:
-                raise ValueError(f"conflict: {v} appears twice in row {r}")
-            seen.add(v)
+        _check_no_duplicates(
+            (known[r * 9 + c] for c in range(9)), f"row {r}"
+        )
 
     for c in range(9):
-        seen = set()
-        for r in range(9):
-            v = known[r * 9 + c]
-            if not v:
-                continue
-            if v in seen:
-                raise ValueError(f"conflict: {v} appears twice in column {c}")
-            seen.add(v)
+        _check_no_duplicates(
+            (known[r * 9 + c] for r in range(9)), f"column {c}"
+        )
 
     for b in range(9):
         br, bc = b // 3 * 3, b % 3 * 3
-        seen = set()
-        for dr in range(3):
-            for dc in range(3):
-                v = known[(br + dr) * 9 + bc + dc]
-                if not v:
-                    continue
-                if v in seen:
-                    raise ValueError(f"conflict: {v} appears twice in box {b}")
-                seen.add(v)
+        _check_no_duplicates(
+            (known[(br + dr) * 9 + bc + dc] for dr in range(3) for dc in range(3)),
+            f"box {b}",
+        )
 
 
 def create_unknowns(known):
@@ -454,7 +456,7 @@ def main():
         logging.basicConfig(level=logging.DEBUG, handlers=[handler], force=True)
 
     results = []
-    with open(args.input_file) as f:
+    with open(args.input_file, encoding="utf-8") as f:
         passes,fails=0,0
         for line in f:
             line = line.strip()
@@ -474,7 +476,7 @@ def main():
     if output:
         output += "\n"
     if args.output_file:
-        with open(args.output_file, "w") as f:
+        with open(args.output_file, "w", encoding="utf-8") as f:
             f.write(output)
     else:
         sys.stdout.write(output)
