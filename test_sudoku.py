@@ -144,6 +144,8 @@ SOLVERS_BEFORE_KITES = (
 
 SOLVERS_BEFORE_XYWINGS = SOLVERS_BEFORE_KITES + (sudoku.find_xywing,)
 
+SOLVERS_BEFORE_CRANES = SOLVERS_BEFORE_XYWINGS
+
 
 def run_solvers_to_fixpoint(solvers, known, unknowns):
     while sudoku.run_solvers(solvers, known, unknowns):
@@ -214,6 +216,102 @@ class TestFindXywing(unittest.TestCase):
             unknowns.add(sudoku.CSet(cands, idx))
 
         self.assertFalse(sudoku.find_xywing([0] * 81, unknowns))
+
+
+class TestFindHidden(unittest.TestCase):
+    def test_find_hidden_pair_restricts_cells(self):
+        """Hidden pair {1,2} in a row removes extra candidates from both cells."""
+        unknowns = sudoku.Unknowns()
+        specs = {
+            0: {1, 2, 7},
+            1: {1, 2, 8},
+            2: {3, 4, 5},
+        }
+        for idx, cands in specs.items():
+            unknowns.add(sudoku.CSet(cands, idx))
+
+        self.assertTrue(sudoku.find_hidden([0] * 81, unknowns))
+        self.assertEqual(set(unknowns.by_idx[0]), {1, 2})
+        self.assertEqual(set(unknowns.by_idx[1]), {1, 2})
+        self.assertEqual(set(unknowns.by_idx[2]), {3, 4, 5})
+
+    def test_find_hidden_triple_restricts_cells(self):
+        """Hidden triple {4,5,6} in a row removes extra candidates."""
+        unknowns = sudoku.Unknowns()
+        specs = {
+            0: {4, 5, 6, 9},
+            1: {4, 5, 6, 8},
+            2: {4, 5, 6, 7},
+            3: {1, 2, 3},
+        }
+        for idx, cands in specs.items():
+            unknowns.add(sudoku.CSet(cands, idx))
+
+        self.assertTrue(sudoku.find_hidden([0] * 81, unknowns))
+        self.assertEqual(set(unknowns.by_idx[0]), {4, 5, 6})
+        self.assertEqual(set(unknowns.by_idx[1]), {4, 5, 6})
+        self.assertEqual(set(unknowns.by_idx[2]), {4, 5, 6})
+        self.assertEqual(set(unknowns.by_idx[3]), {1, 2, 3})
+
+
+class TestFindCrane(unittest.TestCase):
+    CRANE_PUZZLE = (
+        ".....1...........11.8923.4.873.14.292153..47.4967.21.3.49238.1..8714.932321...8.4"
+    )
+    CRANE_TARGET_IDXS = (4, 13)
+    CRANE_END_A_IDX = 49
+    CRANE_END_D_IDX = 40
+
+    def test_find_crane_eliminates_on_short_hard_puzzle_5(self):
+        """Real puzzle where crane fires on the initial candidate grid."""
+        known = sudoku.parse_puzzle(self.CRANE_PUZZLE)
+        unknowns = sudoku.create_unknowns(known)
+        targets = [unknowns.by_idx[i] for i in self.CRANE_TARGET_IDXS]
+        end_a = unknowns.by_idx[self.CRANE_END_A_IDX]
+        end_d = unknowns.by_idx[self.CRANE_END_D_IDX]
+
+        for target in targets:
+            self.assertIn(8, target)
+        self.assertIn(8, end_a)
+        self.assertIn(8, end_d)
+
+        self.assertTrue(sudoku.find_crane(known, unknowns))
+
+        for target in targets:
+            self.assertNotIn(8, target)
+        self.assertIn(8, end_a)
+        self.assertIn(8, end_d)
+
+    def test_find_crane_eliminates_from_endpoint_overlap_not_end_d(self):
+        """Synthetic strong-weak-strong chain for digit 8."""
+        unknowns = sudoku.Unknowns()
+        specs = {
+            0: {8, 1},    # end_a (0,0)
+            2: {8, 1},    # mid_b (0,2) row strong link with end_a
+            18: {8, 2},   # mid_c (2,0) weak box link with mid_b
+            20: {8, 2},   # end_d (2,2) row strong link with mid_c
+            11: {8, 3},   # overlap target sees end_a and end_d
+        }
+        for idx, cands in specs.items():
+            unknowns.add(sudoku.CSet(cands, idx))
+
+        end_d = unknowns.by_idx[20]
+        target = unknowns.by_idx[11]
+        self.assertIn(8, end_d)
+        self.assertIn(8, target)
+
+        self.assertTrue(sudoku.find_crane([0] * 81, unknowns))
+        self.assertIn(8, end_d)
+        self.assertNotIn(8, target)
+
+    def test_find_crane_rejects_invalid_column_tail(self):
+        """Column with three holders is not a strong link for the tail."""
+        known = sudoku.parse_puzzle(
+            "........8.....8..18....2.34...78561.61729438558.31674....853496348629157965...823"
+        )
+        unknowns = sudoku.create_unknowns(known)
+        run_solvers_to_fixpoint(SOLVERS_BEFORE_CRANES, known, unknowns)
+        self.assertFalse(sudoku.find_crane(known, unknowns))
 
 
 class TestFindColoring(unittest.TestCase):
