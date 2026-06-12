@@ -311,34 +311,45 @@ def find_skyscrapers(_known, unknowns):
 
 
 def find_kites(_known, unknowns):
-    """Two String Kites
+    """Two-string kites.
+
     https://sudoku.coach/en/learn/two-string-kite
 
-    Find a horizontal strong pair that has one end point in the same
-    box as an overlapping vertical strong pair. Anything in the
-    intersection of the linked_sets of the non-box endpoints can't be
-    the overlapping value. Make sense?
+    A row naked pair in one box links to a column naked pair in that box
+    through a shared digit. Eliminate that digit from the cell where the
+    row-far column meets the column-far row.
     """
+    def try_elimination(row_near, row_far, box_corner, col_far, digit):
+        targets = unknowns.col(row_far.col) & unknowns.row(col_far.row)
+        if elim_values(digit, targets):
+            dbg(
+                "kite",
+                "kite: digit=%s row_near=%s row_far=%s box_corner=%s col_far=%s",
+                digit, row_near, row_far, box_corner, col_far,
+            )
+            return True
+        return False
+
     for row in range(9):
-        for u1 in unknowns.row(row):
-            if len(u1)!=2:
+        for row_near in unknowns.row(row):
+            if len(row_near) != 2:
                 continue
-            for u2 in unknowns.row(row)-unknowns.box(u1.box):
-                if len(u2)!=2 or len(u1&u2)!=2:
+            row_mates = unknowns.row(row) - unknowns.box(row_near.box)
+            for row_far in row_mates:
+                if len(row_far) != 2 or len(row_near & row_far) != 2:
                     continue
-                # Found a locked pair on the row.
-                for u3 in unknowns.box(u1.box)-{u1}:
-                    if len(u3)!=2 or len(u1&u3)!=1:
+                # Naked pair on the row across two boxes.
+                box_mates = unknowns.box(row_near.box) - {row_near}
+                for box_corner in box_mates:
+                    if len(box_corner) != 2 or len(row_near & box_corner) != 1:
                         continue
-                    for u4 in unknowns.col(u3.col)-unknowns.box(u3.box):
-                        if len(u4)!=2 or len(u3&u4)!=2:
+                    col_mates = unknowns.col(box_corner.col) - unknowns.box(box_corner.box)
+                    for col_far in col_mates:
+                        if len(col_far) != 2 or len(box_corner & col_far) != 2:
                             continue
-                        v=u1&u3
-                        us=unknowns.col(u2.col)&unknowns.row(u4.row)
-                        if elim_values(v,us):
-                            dbg("kite",f'kite: {v=} {us=}')
+                        digit = row_near & box_corner
+                        if try_elimination(row_near, row_far, box_corner, col_far, digit):
                             return True
-                    
     return False
 
 

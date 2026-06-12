@@ -99,6 +99,40 @@ class TestShortHardPuzzles(unittest.TestCase):
         self.assertEqual(fails, len(puzzles) - len(self.EXPECTED_SOLUTIONS))
 
 
+SOLVERS_BEFORE_KITES = (
+    sudoku.find_singles,
+    sudoku.find_unaries,
+    sudoku.find_locked,
+    sudoku.find_boxex,
+    sudoku.find_rcex,
+    sudoku.find_fish,
+    sudoku.find_skyscrapers,
+)
+
+
+def run_solvers_to_fixpoint(solvers, known, unknowns):
+    while sudoku.run_solvers(solvers, known, unknowns):
+        pass
+
+
+class TestFindKites(unittest.TestCase):
+    KITE_PUZZLE = (
+        ".....1........5..16158.234.82165.4.3543..861.967314..875.1.3...39.5.61..186.4..35"
+    )
+    KITE_TARGET_IDX = 34
+
+    def test_find_kites_eliminates_at_row_col_intersection(self):
+        known = sudoku.parse_puzzle(self.KITE_PUZZLE)
+        unknowns = sudoku.create_unknowns(known)
+        run_solvers_to_fixpoint(SOLVERS_BEFORE_KITES, known, unknowns)
+
+        target = unknowns.by_idx[self.KITE_TARGET_IDX]
+        self.assertEqual(set(target), {7, 9})
+
+        self.assertTrue(sudoku.find_kites(known, unknowns))
+        self.assertEqual(set(target), {9})
+
+
 class TestParseAndValidate(unittest.TestCase):
     def test_parse_puzzle_accepts_dots(self):
         puzzle = "." * 80 + "1"
