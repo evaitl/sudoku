@@ -7,8 +7,9 @@ import sys
 log = logging.getLogger(__name__)
 
 DEBUG_SECTIONS = frozenset({ "solve", "assign", "solver", "singles",
-                             "unaries", "locked", "boxex", "rcex", "elim","fish",
-                             "skyscraper", "kite", "crane",})
+                             "unaries", "locked", "boxex", "rcex",
+                             "elim","fish", "skyscraper", "kite",
+                             "crane",})
 _debug_sections = None
 
 
@@ -254,19 +255,42 @@ def find_fish(_known, unknowns):
     called. We could actually do 1x1 here, but that should be picked
     up earlier.
     """
+    row_cells = [unknowns.row(r) for r in range(9)]
+    active_rows = tuple(r for r in range(9) if row_cells[r])
+    if len(active_rows) < 2:
+        return False
+
+    row_digit_cols = [[set() for _ in range(10)] for _ in range(9)]
+    for r in range(9):
+        for u in row_cells[r]:
+            for digit in u:
+                row_digit_cols[r][digit].add(u.col)
+
     for fish_size in range(2, 9):
-        for rows in itertools.combinations(range(9), fish_size):
-            row_sets = [list(unknowns.row(row)) for row in rows]
-            for v in range(1, 10):
-                if not all(r for r in row_sets) or not all(v in set.union(*r) for r in row_sets):
-                    continue
-                col_set = set(u.col for r in row_sets for u in r if v in u)
-                if len(col_set) != fish_size:
-                    continue
-                remove_set = [u for u in unknowns if u.row not in rows and u.col in col_set]
-                if elim_values(v, remove_set):
-                    dbg("fish", f'fish: {fish_size=} {v=} {rows=} {col_set=}')
-                    return True
+        for rows in itertools.combinations(active_rows, fish_size):
+            rows_set = frozenset(rows)
+            for digit in range(1, 10):
+                col_set = set()
+                for row in rows:
+                    cols = row_digit_cols[row][digit]
+                    if not cols:
+                        break
+                    col_set |= cols
+                else:
+                    if len(col_set) != fish_size:
+                        continue
+                    remove_set = [
+                        u for col in col_set
+                        for u in unknowns.col(col)
+                        if u.row not in rows_set and digit in u
+                    ]
+                    if elim_values(digit, remove_set):
+                        dbg(
+                            "fish",
+                            "fish: fish_size=%d digit=%d rows=%s col_set=%s",
+                            fish_size, digit, rows, col_set,
+                        )
+                        return True
     return False
 
 
