@@ -74,7 +74,7 @@ When an output file is given, results are written there instead of stdout.
 
 Use `--debug-section` to limit logging to one or more sections:
 
-`solve`, `assign`, `solver`, `singles`, `unaries`, `locked`, `boxex`, `rcex`, `elim`, `fish`, `skyscraper`
+`solve`, `assign`, `solver`, `singles`, `unaries`, `locked`, `boxline`, `linebox`, `elim`, `fish`, `skyscraper`
 
 ## Example
 

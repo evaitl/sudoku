@@ -8,7 +8,7 @@ import sys
 log = logging.getLogger(__name__)
 
 DEBUG_SECTIONS = frozenset({ "solve", "assign", "solver", "singles",
-                             "unaries", "locked", "boxex", "rcex",
+                             "unaries", "locked", "boxline", "linebox",
                              "elim","fish", "skyscraper", "kite",
                              "crane",})
 _debug_sections = None
@@ -252,7 +252,7 @@ def find_locked(_known, unknowns):
 
 
 @count_solver
-def find_boxex(_known, unknowns):
+def find_boxline(_known, unknowns):
     """Box/line reduction (locked candidates type 1).
 
     When a digit appears in only one row or column within a box, remove it
@@ -262,17 +262,17 @@ def find_boxex(_known, unknowns):
         for v in u:
             if not any(u2.row != u.row and v in u2 for u2 in unknowns.box(u.box)):
                 if elim_values(v, [u2 for u2 in unknowns.row(u.row) if u2.box != u.box]):
-                    dbg("boxex", "row %d value %d in box %d", u.row, v, u.box)
+                    dbg("boxline", "row %d value %d in box %d", u.row, v, u.box)
                     return True
             if not any(u2.col != u.col and v in u2 for u2 in unknowns.box(u.box)):
                 if elim_values(v, [u2 for u2 in unknowns.col(u.col) if u2.box != u.box]):
-                    dbg("boxex", "col %d value %d in box %d", u.col, v, u.box)
+                    dbg("boxline", "col %d value %d in box %d", u.col, v, u.box)
                     return True
     return False
 
 
 @count_solver
-def find_rcex(_known, unknowns):
+def find_linebox(_known, unknowns):
     """Row/column claiming (locked candidates type 2).
 
     When a digit appears in only one box along a row or column, remove it
@@ -282,11 +282,11 @@ def find_rcex(_known, unknowns):
         for v in u:
             if not any(u2.box != u.box and v in u2 for u2 in unknowns.row(u.row)):
                 if elim_values(v, [u2 for u2 in unknowns.box(u.box) if u2.row != u.row]):
-                    dbg("rcex", "row %d value %d in box %d", u.row, v, u.box)
+                    dbg("linebox", "row %d value %d in box %d", u.row, v, u.box)
                     return True
             if not any(u2.box != u.box and v in u2 for u2 in unknowns.col(u.col)):
                 if elim_values(v, [u2 for u2 in unknowns.box(u.box) if u2.col != u.col]):
-                    dbg("rcex", "col %d value %d in box %d", u.col, v, u.box)
+                    dbg("linebox", "col %d value %d in box %d", u.col, v, u.box)
                     return True
     return False
 
@@ -503,8 +503,8 @@ SOLVERS = (
     find_singles,
     find_unaries,
     find_locked,
-    find_boxex,
-    find_rcex,
+    find_boxline,
+    find_linebox,
     find_fish,
     find_skyscrapers,
     find_kites,

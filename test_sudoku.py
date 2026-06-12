@@ -105,8 +105,8 @@ SOLVERS_BEFORE_KITES = (
     sudoku.find_singles,
     sudoku.find_unaries,
     sudoku.find_locked,
-    sudoku.find_boxex,
-    sudoku.find_rcex,
+    sudoku.find_boxline,
+    sudoku.find_linebox,
     sudoku.find_fish,
     sudoku.find_skyscrapers,
 )
