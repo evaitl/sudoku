@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -145,6 +147,27 @@ class TestFindKites(unittest.TestCase):
         target = unknowns.by_idx[self.KITE_TARGET_IDX]
         self.assertTrue(sudoku.find_kites(known, unknowns))
         self.assertEqual(set(target), {9})
+
+
+class TestCliExitCode(unittest.TestCase):
+    SUDOKU = ROOT / "sudoku.py"
+
+    def run_cli(self, input_file):
+        return subprocess.run(
+            [sys.executable, str(self.SUDOKU), str(ROOT / input_file)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_exits_zero_when_all_puzzles_solve(self):
+        result = self.run_cli("short.txt")
+        self.assertEqual(result.returncode, 0)
+
+    def test_exits_one_when_any_puzzle_fails(self):
+        result = self.run_cli("short_hard.txt")
+        self.assertEqual(result.returncode, 1)
 
 
 class TestParseAndValidate(unittest.TestCase):
