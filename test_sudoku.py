@@ -152,6 +152,33 @@ class TestFindKites(unittest.TestCase):
 
 
 class TestFindCrane(unittest.TestCase):
+    CRANE_PUZZLE = (
+        ".....1...........11.8923.4.873.14.292153..47.4967.21.3.49238.1..8714.932321...8.4"
+    )
+    CRANE_TARGET_IDXS = (4, 13)
+    CRANE_END_A_IDX = 49
+    CRANE_END_D_IDX = 40
+
+    def test_find_crane_eliminates_on_short_hard_puzzle_5(self):
+        """Real puzzle where crane fires on the initial candidate grid."""
+        known = sudoku.parse_puzzle(self.CRANE_PUZZLE)
+        unknowns = sudoku.create_unknowns(known)
+        targets = [unknowns.by_idx[i] for i in self.CRANE_TARGET_IDXS]
+        end_a = unknowns.by_idx[self.CRANE_END_A_IDX]
+        end_d = unknowns.by_idx[self.CRANE_END_D_IDX]
+
+        for target in targets:
+            self.assertIn(8, target)
+        self.assertIn(8, end_a)
+        self.assertIn(8, end_d)
+
+        self.assertTrue(sudoku.find_crane(known, unknowns))
+
+        for target in targets:
+            self.assertNotIn(8, target)
+        self.assertIn(8, end_a)
+        self.assertIn(8, end_d)
+
     def test_find_crane_eliminates_from_endpoint_overlap_not_end_d(self):
         """Synthetic strong-weak-strong chain for digit 8."""
         unknowns = sudoku.Unknowns()
