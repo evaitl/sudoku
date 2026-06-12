@@ -8,7 +8,7 @@ log = logging.getLogger(__name__)
 
 DEBUG_SECTIONS = frozenset({ "solve", "assign", "solver", "singles",
                              "unaries", "locked", "boxex", "rcex", "elim","fish",
-                             "skyscraper" })
+                             "skyscraper", "kite", })
 _debug_sections = None
 
 
@@ -310,7 +310,7 @@ def find_skyscrapers(_known, unknowns):
     return False
 
 
-def find_kites(_known, _unknowns):
+def find_kites(_known, unknowns):
     """Two String Kites
     https://sudoku.coach/en/learn/two-string-kite
 
@@ -320,9 +320,25 @@ def find_kites(_known, _unknowns):
     the overlapping value. Make sense?
     """
     for row in range(9):
-        for v in range(1, 10):
-            pass
-            #XXX
+        for u1 in unknowns.row(row):
+            if len(u1)!=2:
+                continue
+            for u2 in unknowns.row(row)-unknowns.box(u1.box):
+                if len(u2)!=2 or len(u1&u2)!=2:
+                    continue
+                # Found a locked pair on the row.
+                for u3 in unknowns.box(u1.box)-{u1}:
+                    if len(u3)!=2 or len(u1&u3)!=1:
+                        continue
+                    for u4 in unknowns.col(u3.col)-unknowns.box(u3.box):
+                        if len(u4)!=2 or len(u3&u4)!=2:
+                            continue
+                        v=u1&u3
+                        us=unknowns.col(u2.col)&unknowns.row(u4.row)
+                        if elim_values(v,us):
+                            dbg("kite",f'kite: {v=} {us=}')
+                            return True
+                    
     return False
 
 
@@ -412,6 +428,7 @@ def solve(puzzle):
         find_rcex,
         find_fish,
         find_skyscrapers,
+        find_kites,
     )
     known = parse_puzzle(puzzle)
     validate_puzzle(known)
