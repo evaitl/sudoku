@@ -315,40 +315,44 @@ def find_kites(_known, unknowns):
 
     https://sudoku.coach/en/learn/two-string-kite
 
-    A row naked pair in one box links to a column naked pair in that box
-    through a shared digit. Eliminate that digit from the cell where the
-    row-far column meets the column-far row.
+    A row strong link for a digit links to a column strong link in the
+    same box through a box-corner cell. Eliminate that digit from the
+    cell where the row-far column meets the column-far row.
     """
     def try_elimination(row_near, row_far, box_corner, col_far, digit):
         targets = unknowns.col(row_far.col) & unknowns.row(col_far.row)
         if elim_values(digit, targets):
             dbg(
                 "kite",
-                "kite: digit=%s row_near=%s row_far=%s box_corner=%s col_far=%s",
+                "kite: digit=%d row_near=%s row_far=%s box_corner=%s col_far=%s",
                 digit, row_near, row_far, box_corner, col_far,
             )
             return True
         return False
 
     for row in range(9):
-        for row_near in unknowns.row(row):
-            if len(row_near) != 2:
+        for digit in range(1, 10):
+            row_holders = [u for u in unknowns.row(row) if digit in u]
+            if len(row_holders) != 2:
                 continue
-            row_mates = unknowns.row(row) - unknowns.box(row_near.box)
-            for row_far in row_mates:
-                if len(row_far) != 2 or len(row_near & row_far) != 2:
+            for row_near, row_far in (
+                (row_holders[0], row_holders[1]),
+                (row_holders[1], row_holders[0]),
+            ):
+                if row_near.box == row_far.box:
                     continue
-                # Naked pair on the row across two boxes.
-                box_mates = unknowns.box(row_near.box) - {row_near}
-                for box_corner in box_mates:
-                    if len(box_corner) != 2 or len(row_near & box_corner) != 1:
+                for box_corner in unknowns.box(row_near.box) - {row_near}:
+                    if digit not in box_corner:
                         continue
-                    col_mates = unknowns.col(box_corner.col) - unknowns.box(box_corner.box)
-                    for col_far in col_mates:
-                        if len(col_far) != 2 or len(box_corner & col_far) != 2:
+                    col_holders = [u for u in unknowns.col(box_corner.col) if digit in u]
+                    if len(col_holders) != 2:
+                        continue
+                    for col_far in col_holders:
+                        if col_far is box_corner or col_far.box == box_corner.box:
                             continue
-                        digit = row_near & box_corner
-                        if try_elimination(row_near, row_far, box_corner, col_far, digit):
+                        if try_elimination(
+                            row_near, row_far, box_corner, col_far, digit
+                        ):
                             return True
     return False
 

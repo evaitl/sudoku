@@ -120,15 +120,29 @@ class TestFindKites(unittest.TestCase):
         ".....1........5..16158.234.82165.4.3543..861.967314..875.1.3...39.5.61..186.4..35"
     )
     KITE_TARGET_IDX = 34
+    KITE_ROW_NEAR_IDX = 67
 
-    def test_find_kites_eliminates_at_row_col_intersection(self):
+    def _prepare_for_kites(self):
         known = sudoku.parse_puzzle(self.KITE_PUZZLE)
         unknowns = sudoku.create_unknowns(known)
         run_solvers_to_fixpoint(SOLVERS_BEFORE_KITES, known, unknowns)
+        return known, unknowns
 
+    def test_find_kites_eliminates_at_row_col_intersection(self):
+        known, unknowns = self._prepare_for_kites()
         target = unknowns.by_idx[self.KITE_TARGET_IDX]
         self.assertEqual(set(target), {7, 9})
 
+        self.assertTrue(sudoku.find_kites(known, unknowns))
+        self.assertEqual(set(target), {9})
+
+    def test_find_kites_accepts_row_strong_link_without_naked_pair(self):
+        known, unknowns = self._prepare_for_kites()
+        row_near = unknowns.by_idx[self.KITE_ROW_NEAR_IDX]
+        row_near.add(2)
+        self.assertEqual(set(row_near), {2, 7, 8})
+
+        target = unknowns.by_idx[self.KITE_TARGET_IDX]
         self.assertTrue(sudoku.find_kites(known, unknowns))
         self.assertEqual(set(target), {9})
 
