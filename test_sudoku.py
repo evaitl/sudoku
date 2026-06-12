@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent
 
 def load_puzzles(filename):
     path = ROOT / filename
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]
 
 
@@ -59,6 +59,12 @@ class TestShortHardPuzzles(unittest.TestCase):
         "..2.1...3..3.....11.892374.874.9213..951...7..167......213.9487.872413.9439.78.12": (
             "742815693953467821168923745874592136395186274216734958621359487587241369439678512"
         ),
+        ".....1........5..16158.234.82165.4.3543..861.967314..875.1.3...39.5.61..186.4..35": (
+            "438961752279435861615872349821657493543298617967314528754123986392586174186749235"
+        ),
+        ".....1...........11.8723.4.813.74.2.2753..41.4961.27.3.41238.97.8794.132329.178.4": (
+            "762491358934865271158723649813674925275389416496152783641238597587946132329517864"
+        ),
         ".....1...........11.8923.4.873.14.292153..47.4967.21.3.49238.1..8714.932321...8.4": (
             "962471358734865291158923647873614529215389476496752183649238715587146932321597864"
         ),
@@ -102,6 +108,10 @@ class TestParseAndValidate(unittest.TestCase):
         puzzle = "*" * 80 + "1"
         self.assertEqual(sudoku.parse_puzzle(puzzle), [0] * 80 + [1])
 
+    def test_parse_puzzle_rejects_wrong_length(self):
+        with self.assertRaisesRegex(ValueError, "expected 81 characters, got 80"):
+            sudoku.parse_puzzle("." * 80)
+
     def test_parse_puzzle_rejects_invalid_characters(self):
         puzzle = "." * 40 + "x" + "." * 40
         with self.assertRaisesRegex(ValueError, "invalid character 'x' at position 40"):
@@ -111,7 +121,21 @@ class TestParseAndValidate(unittest.TestCase):
         puzzle = "1" + "." * 80
         known = sudoku.parse_puzzle(puzzle)
         known[1] = 1
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "conflict: 1 appears twice in row 0"):
+            sudoku.validate_puzzle(known)
+
+    def test_validate_puzzle_rejects_duplicate_in_column(self):
+        puzzle = "1" + "." * 80
+        known = sudoku.parse_puzzle(puzzle)
+        known[9] = 1
+        with self.assertRaisesRegex(ValueError, "conflict: 1 appears twice in column 0"):
+            sudoku.validate_puzzle(known)
+
+    def test_validate_puzzle_rejects_duplicate_in_box(self):
+        puzzle = "1" + "." * 80
+        known = sudoku.parse_puzzle(puzzle)
+        known[10] = 1
+        with self.assertRaisesRegex(ValueError, "conflict: 1 appears twice in box 0"):
             sudoku.validate_puzzle(known)
 
 
