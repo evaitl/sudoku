@@ -1,12 +1,42 @@
 #!/usr/bin/env python3
+import multiprocessing as mp
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 import sudoku
 
 ROOT = Path(__file__).resolve().parent
+SOLVE_TIMEOUT = 1.0
+
+
+def _solve_worker(puzzle, conn):
+    try:
+        conn.send(sudoku.solve(puzzle))
+    except Exception as exc:
+        conn.send(exc)
+
+
+def solve_with_timeout(puzzle, timeout=SOLVE_TIMEOUT):
+    """Solve a puzzle, failing if it takes longer than timeout seconds."""
+    ctx = mp.get_context("spawn")
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+    proc = ctx.Process(target=_solve_worker, args=(puzzle, child_conn))
+    proc.start()
+    child_conn.close()
+    proc.join(timeout)
+    if proc.is_alive():
+        proc.terminate()
+        proc.join()
+        raise TimeoutError(f"solving exceeded {timeout:g} second(s)")
+    if parent_conn.poll():
+        result = parent_conn.recv()
+        if isinstance(result, Exception):
+            raise result
+        return result
+    raise RuntimeError("solver exited without returning a result")
 
 
 def load_puzzles(filename):
@@ -50,7 +80,7 @@ class TestShortPuzzles(unittest.TestCase):
 
         for puzzle in puzzles:
             with self.subTest(puzzle=puzzle):
-                solved, result = sudoku.solve(puzzle)
+                solved, result = solve_with_timeout(puzzle)
                 self.assertTrue(solved)
                 self.assertNotIn(".", result)
                 self.assertTrue(is_valid_solution(result))
@@ -95,7 +125,7 @@ class TestShortHardPuzzles(unittest.TestCase):
         self.assertEqual(len(puzzles), 10)
 
         for puzzle in puzzles:
-            solved, result = sudoku.solve(puzzle)
+            solved, result = solve_with_timeout(puzzle)
             with self.subTest(puzzle=puzzle):
                 self.assertTrue(solved)
                 self.assertEqual(result, self.EXPECTED_SOLUTIONS[puzzle])
@@ -260,7 +290,16 @@ class TestCliExitCode(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
 
     def test_exits_one_when_any_puzzle_fails(self):
-        result = self.run_cli("hard.txt")
+        good = load_puzzles("short.txt")[0]
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=ROOT, delete=False, suffix=".txt"
+        ) as handle:
+            handle.write(f"{good}\n{'.' * 81}\n")
+            fail_file = Path(handle.name).name
+        try:
+            result = self.run_cli(fail_file)
+        finally:
+            (ROOT / fail_file).unlink(missing_ok=True)
         self.assertEqual(result.returncode, 1)
 
 
