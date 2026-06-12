@@ -94,8 +94,10 @@ published. [This](https://tinyurl.com/26nntcdy) file of minimal clued
 sudokus is the test set for this sudoku solver program.
 
 Right now, this thing solves all but 4 of the 49,158 17-pole sudokus
-with no guessing or backtracking. I'm working on the last 4.
+with no guessing or backtracking. For those last 4, I'm doing a
+guess/backtracking.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE)
+for details.
