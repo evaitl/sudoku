@@ -152,16 +152,6 @@ def elim_values(vi, gi):
     return ret
 
 
-def peer_candidates(unknowns, u, attr):
-    """Union of candidates from other unknowns in u's row, col, or box."""
-    return set().union(*(o for o in unknowns.unit(attr, getattr(u, attr)) if o.idx != u.idx))
-
-
-def unit_unknowns(unknowns, u, attr):
-    """Unknown cells sharing u's row, col, or box."""
-    return list(unknowns.unit(attr, getattr(u, attr)))
-
-
 def find_singles(known, unknowns):
     """Assign cells with only one remaining candidate. Return True if one was found."""
     for u in unknowns:
@@ -174,16 +164,27 @@ def find_singles(known, unknowns):
 
 def find_unaries(known, unknowns):
     """Assign cells that alone hold a value in their row, column, or box."""
-    for u in unknowns:
-        for attr in ("row", "col", "box"):
-            if len(unit_unknowns(unknowns, u, attr)) < 2:
+    for attr in ("row", "col", "box"):
+        for unit_idx in range(9):
+            cells = unknowns.unit(attr, unit_idx)
+            if len(cells) < 2:
                 continue
-            s = peer_candidates(unknowns, u, attr)
-            for v in u:
-                if v not in s:
-                    dbg("unaries", "found unary %s %d=%d at %d",
-                        attr, getattr(u, attr), v, u.idx)
-                    add_known(known, unknowns, u.idx, v)
+            for digit in range(1, 10):
+                holder = None
+                for u in cells:
+                    if digit not in u:
+                        continue
+                    if holder is not None:
+                        holder = None
+                        break
+                    holder = u
+                if holder is not None:
+                    dbg(
+                        "unaries",
+                        "found unary %s %d=%d at %d",
+                        attr, unit_idx, digit, holder.idx,
+                    )
+                    add_known(known, unknowns, holder.idx, digit)
                     return True
     return False
 
