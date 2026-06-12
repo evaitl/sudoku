@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 DEBUG_SECTIONS = frozenset({ "solve", "assign", "solver", "singles",
                              "unaries", "locked", "boxline", "linebox",
                              "elim","fish", "skyscraper", "kite",
-                             "crane", "coloring",})
+                             "crane", "xywing", "coloring",})
 _debug_sections = None
 
 
@@ -446,75 +446,124 @@ def find_kites(_known, unknowns):
     return False
 
 @count_solver
-def find_crane(_known, unknowns):
-    """Cranes (strong-weak-strong chain).
+def find_xywing(_known, unknowns):
+    """XY-Wing.
 
-    https://sudoku.coach/en/learn/crane
+    https://sudoku.coach/en/learn/xy-wing
 
-    end_a and end_d are the outer endpoints of a strong-weak-strong chain for
-    digit v. Eliminate v from unknown cells that see both endpoints.
+    Bivalue pivot XY, bivalue wing XZ sharing a unit with the pivot,
+    bivalue wing YZ sharing a unit with the pivot. The wings do not see
+    each other. Eliminate Z from unknown cells that see both wings.
     """
-    def digit_holders(cells, digit):
-        return [cell for cell in cells if digit in cell]
-
-    def strong_link(cells, left, right, digit):
-        holders = digit_holders(cells, digit)
-        return len(holders) == 2 and left in holders and right in holders
-
-    def weak_box_link(mid_b, mid_c, digit):
-        if mid_b.box != mid_c.box or digit not in mid_b or digit not in mid_c:
-            return False
-        if mid_b.row == mid_c.row:
-            return len(digit_holders(unknowns.row(mid_b.row), digit)) > 2
-        if mid_b.col == mid_c.col:
-            return len(digit_holders(unknowns.col(mid_b.col), digit)) > 2
-        return True
-
-    def try_elimination(end_a, end_d, chain, digit):
+    def try_elimination(pivot, wing_a, wing_b, z):
+        chain = {pivot, wing_a, wing_b}
         targets = {
-            cell for cell in unknowns.linked(end_a) & unknowns.linked(end_d)
-            if digit in cell
+            cell for cell in unknowns.linked(wing_a) & unknowns.linked(wing_b)
+            if z in cell
         } - chain
-        if elim_values(digit, targets):
+        if elim_values(z, targets):
             dbg(
-                "crane",
-                "crane: digit=%d end_a=%s end_d=%s targets=%s",
-                digit, end_a, end_d, targets,
+                "xywing",
+                "xywing: z=%d pivot=%s wing_a=%s wing_b=%s targets=%s",
+                z, pivot, wing_a, wing_b, targets,
             )
             return True
         return False
 
-    for end_a in unknowns.values():
-        if len(end_a) != 2:
+    for pivot in unknowns.values():
+        if len(pivot) != 2:
             continue
-        for mid_b in unknowns.linked(end_a):
-            if len(mid_b) != 2 or len(end_a & mid_b) != 2:
+        x, y = tuple(pivot)
+        for z in range(1, 10):
+            if z == x or z == y:
                 continue
-            for mid_c in unknowns.linked(mid_b) - {end_a}:
-                if len(mid_c) != 2 or len(mid_b & mid_c) != 1:
-                    continue
-                digit = next(iter(mid_b & mid_c))
-                if not any(
-                    strong_link(unknowns.unit(unit, getattr(end_a, unit)), end_a, mid_b, digit)
-                    for unit in ("row", "col")
-                ):
-                    continue
-                if not weak_box_link(mid_b, mid_c, digit):
-                    continue
-                for end_d in unknowns.linked(mid_c) - {end_a, mid_b}:
-                    if digit not in end_d:
+            wings_xz = [
+                u for u in unknowns.linked(pivot)
+                if u.idx != pivot.idx and len(u) == 2 and x in u and z in u
+            ]
+            wings_yz = [
+                u for u in unknowns.linked(pivot)
+                if u.idx != pivot.idx and len(u) == 2 and y in u and z in u
+            ]
+            for wing_a in wings_xz:
+                for wing_b in wings_yz:
+                    if wing_b.idx == wing_a.idx or wing_b in unknowns.linked(wing_a):
                         continue
-                    if end_d not in unknowns.linked(end_a):
-                        continue
-                    if not any(
-                        strong_link(unknowns.unit(unit, getattr(mid_c, unit)), mid_c, end_d, digit)
-                        for unit in ("row", "col", "box")
-                    ):
-                        continue
-                    chain = {end_a, mid_b, mid_c, end_d}
-                    if try_elimination(end_a, end_d, chain, digit):
+                    if try_elimination(pivot, wing_a, wing_b, z):
                         return True
     return False
+
+
+# @count_solver
+# def find_crane(_known, unknowns):
+#     """Cranes (strong-weak-strong chain).
+#
+#     https://sudoku.coach/en/learn/crane
+#
+#     end_a and end_d are the outer endpoints of a strong-weak-strong chain for
+#     digit v. Eliminate v from unknown cells that see both endpoints.
+#     """
+#     def digit_holders(cells, digit):
+#         return [cell for cell in cells if digit in cell]
+#
+#     def strong_link(cells, left, right, digit):
+#         holders = digit_holders(cells, digit)
+#         return len(holders) == 2 and left in holders and right in holders
+#
+#     def weak_box_link(mid_b, mid_c, digit):
+#         if mid_b.box != mid_c.box or digit not in mid_b or digit not in mid_c:
+#             return False
+#         if mid_b.row == mid_c.row:
+#             return len(digit_holders(unknowns.row(mid_b.row), digit)) > 2
+#         if mid_b.col == mid_c.col:
+#             return len(digit_holders(unknowns.col(mid_b.col), digit)) > 2
+#         return True
+#
+#     def try_elimination(end_a, end_d, chain, digit):
+#         targets = {
+#             cell for cell in unknowns.linked(end_a) & unknowns.linked(end_d)
+#             if digit in cell
+#         } - chain
+#         if elim_values(digit, targets):
+#             dbg(
+#                 "crane",
+#                 "crane: digit=%d end_a=%s end_d=%s targets=%s",
+#                 digit, end_a, end_d, targets,
+#             )
+#             return True
+#         return False
+#
+#     for end_a in unknowns.values():
+#         if len(end_a) != 2:
+#             continue
+#         for mid_b in unknowns.linked(end_a):
+#             if len(mid_b) != 2 or len(end_a & mid_b) != 2:
+#                 continue
+#             for mid_c in unknowns.linked(mid_b) - {end_a}:
+#                 if len(mid_c) != 2 or len(mid_b & mid_c) != 1:
+#                     continue
+#                 digit = next(iter(mid_b & mid_c))
+#                 if not any(
+#                     strong_link(unknowns.unit(unit, getattr(end_a, unit)), end_a, mid_b, digit)
+#                     for unit in ("row", "col")
+#                 ):
+#                     continue
+#                 if not weak_box_link(mid_b, mid_c, digit):
+#                     continue
+#                 for end_d in unknowns.linked(mid_c) - {end_a, mid_b}:
+#                     if digit not in end_d:
+#                         continue
+#                     if end_d not in unknowns.linked(end_a):
+#                         continue
+#                     if not any(
+#                         strong_link(unknowns.unit(unit, getattr(mid_c, unit)), mid_c, end_d, digit)
+#                         for unit in ("row", "col", "box")
+#                     ):
+#                         continue
+#                     chain = {end_a, mid_b, mid_c, end_d}
+#                     if try_elimination(end_a, end_d, chain, digit):
+#                         return True
+#     return False
 
 
 @count_solver
@@ -529,15 +578,18 @@ def find_coloring(known, unknowns):
     share the same color, so the digit is removed from unknown cells that
     see both endpoints.
     """
-    def assign_cands(known_state, cands, idx, value):
+    cands = {u.idx: set(u) for u in unknowns}
+    placement_cache = {}
+
+    def assign_cands(known_state, cand_map, idx, value):
         """Assign value at idx and return updated candidates, or None."""
         row, col, box = get_rcb(idx)
         known_state[idx] = value
         new_c = {}
-        for i, candidates in cands.items():
+        for i, candidates in cand_map.items():
             if i == idx:
                 continue
-            remaining = set(candidates)
+            remaining = candidates.copy()
             r, c, b = get_rcb(i)
             if row == r or col == c or box == b:
                 remaining.discard(value)
@@ -546,26 +598,84 @@ def find_coloring(known, unknowns):
             new_c[i] = remaining
         return new_c
 
-    def has_completion(known_state, cands):
+    def propagate(known_state, cand_map):
+        """Apply singles until fixpoint; return None on contradiction."""
+        cmap = {i: set(v) for i, v in cand_map.items()}
+        while True:
+            progress = False
+            for idx, values in list(cmap.items()):
+                if len(values) != 1:
+                    continue
+                state = list(known_state)
+                next_c = assign_cands(state, cmap, idx, next(iter(values)))
+                if next_c is None:
+                    return None
+                known_state[:] = state
+                cmap = next_c
+                progress = True
+                break
+            if progress:
+                continue
+            for unit_idx, attr in enumerate(("row", "col", "box")):
+                for unit in range(9):
+                    for digit in range(1, 10):
+                        holders = [
+                            idx for idx, values in cmap.items()
+                            if digit in values and get_rcb(idx)[unit_idx] == unit
+                        ]
+                        if len(holders) != 1:
+                            continue
+                        idx = holders[0]
+                        if len(cmap[idx]) == 1:
+                            continue
+                        state = list(known_state)
+                        next_c = assign_cands(state, cmap, idx, digit)
+                        if next_c is None:
+                            return None
+                        known_state[:] = state
+                        cmap = next_c
+                        progress = True
+                        break
+                    if progress:
+                        break
+                if progress:
+                    break
+            if not progress:
+                return cmap
+
+    def has_completion(known_state, cand_map):
         """Return True when the partial grid can still be completed."""
-        if not cands:
-            return True
-        idx = min(cands, key=lambda i: len(cands[i]))
         state = list(known_state)
-        for value in cands[idx]:
-            next_cands = assign_cands(state, cands, idx, value)
-            if next_cands is not None and has_completion(state, next_cands):
+        cmap = propagate(state, cand_map)
+        if cmap is None:
+            return False
+        if not cmap:
+            return True
+        idx = min(cmap, key=lambda i: len(cmap[i]))
+        for value in cmap[idx]:
+            branch_state = list(state)
+            next_cands = assign_cands(branch_state, cmap, idx, value)
+            if next_cands is not None and has_completion(branch_state, next_cands):
                 return True
-            state[idx] = 0
         return False
 
-    def can_place(known_state, cands, idx, value):
+    def can_place(idx, value):
         """Return True when some completion still places value at idx."""
+        key = (idx, value)
+        cached = placement_cache.get(key)
+        if cached is not None:
+            return cached
         if idx not in cands or value not in cands[idx]:
+            placement_cache[key] = False
             return False
-        state = list(known_state)
+        if len(cands[idx]) == 1:
+            placement_cache[key] = True
+            return True
+        state = list(known)
         next_cands = assign_cands(state, cands, idx, value)
-        return next_cands is not None and has_completion(state, next_cands)
+        result = next_cands is not None and has_completion(state, next_cands)
+        placement_cache[key] = result
+        return result
 
     def is_bilocal(u, digit):
         """True when digit appears in exactly two cells of a row, col, or box."""
@@ -575,24 +685,30 @@ def find_coloring(known, unknowns):
                 return True
         return False
 
-    def strong_neighbors(u, digit):
-        """Other cells sharing a row/col/box strong link with u for digit."""
-        neighbors = set()
+    def strong_link_graph(digit):
+        """Return bilocal nodes and strong-link adjacency for digit."""
+        nodes = [u for u in unknowns if digit in u and is_bilocal(u, digit)]
+        node_set = set(nodes)
+        adj = {u: [] for u in nodes}
         for attr in ("row", "col", "box"):
-            holders = [c for c in unknowns.unit(attr, getattr(u, attr)) if digit in c]
-            if len(holders) == 2 and u in holders:
-                neighbors.add(holders[0] if holders[1] is u else holders[1])
-        return neighbors
+            for unit in range(9):
+                holders = [c for c in unknowns.unit(attr, unit) if digit in c]
+                if len(holders) != 2:
+                    continue
+                a, b = holders
+                if a in node_set and b in node_set:
+                    adj[a].append(b)
+                    adj[b].append(a)
+        return nodes, adj
 
     def try_elimination(start, end, chain, digit):
-        cands = {u.idx: set(u) for u in unknowns}
         targets = {
             cell for cell in unknowns.linked(start) & unknowns.linked(end)
             if digit in cell
         } - chain
         safe = {
             cell for cell in targets
-            if not can_place(known, cands, cell.idx, digit)
+            if not can_place(cell.idx, digit)
         }
         if elim_values(digit, safe):
             dbg(
@@ -603,26 +719,27 @@ def find_coloring(known, unknowns):
             return True
         return False
 
-    def extend_chain(start, digit, chain):
+    def extend_chain(start, digit, adj, chain, on_chain):
         if len(chain) % 2 == 1 and len(chain) >= 3:
-            if try_elimination(start, chain[-1], set(chain), digit):
+            if try_elimination(start, chain[-1], on_chain, digit):
                 return True
 
         current = chain[-1]
-        for neighbor in strong_neighbors(current, digit):
-            if neighbor in chain or not is_bilocal(neighbor, digit):
+        for neighbor in adj[current]:
+            if neighbor in on_chain:
                 continue
             chain.append(neighbor)
-            if extend_chain(start, digit, chain):
+            on_chain.add(neighbor)
+            if extend_chain(start, digit, adj, chain, on_chain):
                 return True
+            on_chain.remove(neighbor)
             chain.pop()
         return False
 
-    for start in unknowns.values():
-        for digit in start:
-            if not is_bilocal(start, digit):
-                continue
-            if extend_chain(start, digit, [start]):
+    for digit in range(1, 10):
+        nodes, adj = strong_link_graph(digit)
+        for start in nodes:
+            if extend_chain(start, digit, adj, [start], {start}):
                 return True
     return False
 
@@ -636,7 +753,7 @@ SOLVERS = (
     find_fish,
     find_skyscrapers,
     find_kites,
-    find_crane,
+    find_xywing,
     find_coloring,
 )
 
