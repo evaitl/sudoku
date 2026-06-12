@@ -1,6 +1,9 @@
 # Sudoku Solver
 
-A Python Sudoku solver that uses logical deduction instead of brute-force guessing. It reads puzzles from a file, applies a sequence of human-style solving techniques, and reports whether each puzzle was solved.
+A Python Sudoku solver that uses logical deduction instead of
+brute-force guessing. It reads puzzles from a file, applies a sequence
+of human-style solving techniques, and reports whether each puzzle was
+solved.
 
 ## Features
 
@@ -83,6 +86,12 @@ i=.................1.....2.3......3.2...1.4......5....6..3......4.7..8...962...7
 o=953168742862734951417952836746893125281645397395271468138529674574386219629417583
 passes=1 fails=0
 ```
+### Test Set
+
+A 2012 paper showed that the minimum number of poles for a proper
+sudoku is 17. In 2022 all 49,159 were found and
+published. [This](https://tinyurl.com/26nntcdy) file of minimal clued
+sudokus is the test set for this sudoku solver program.
 
 ## License
 
