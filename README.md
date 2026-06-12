@@ -1,9 +1,9 @@
 # Sudoku Solver
 
-A Python Sudoku solver that uses logical deduction instead of
-brute-force guessing. It reads puzzles from a file, applies a sequence
-of human-style solving techniques, and reports whether each puzzle was
-solved.
+A Python Sudoku solver that applies human-style logical techniques first,
+with guess-and-backtrack as a final fallback. It reads puzzles from a
+file, applies a sequence of solving techniques, and reports whether each
+puzzle was solved.
 
 ## Features
 
@@ -13,10 +13,16 @@ solved.
   - Singles (naked singles)
   - Unaries (hidden singles)
   - Locked candidates (naked pairs, triples, and quads)
+  - Hidden subsets (hidden pairs and triples)
   - Box/line reduction (locked candidates type 1)
   - Row/column claiming (locked candidates type 2)
   - Fish patterns (X-Wing, Swordfish, and larger)
   - Skyscrapers
+  - Kites (two-string kite / turbot fish)
+  - XY-wing
+  - Crane (strong-weak-strong chains)
+  - Simple coloring (two-color strong-link chains)
+  - Guess (MRV selection with propagation and backtracking)
 - Optional debug logging with per-section filters
 - Input validation for conflicting clues
 
@@ -74,7 +80,9 @@ When an output file is given, results are written there instead of stdout.
 
 Use `--debug-section` to limit logging to one or more sections:
 
-`solve`, `assign`, `solver`, `singles`, `unaries`, `locked`, `boxline`, `linebox`, `elim`, `fish`, `skyscraper`
+`solve`, `assign`, `solver`, `singles`, `unaries`, `locked`, `hidden`,
+`boxline`, `linebox`, `elim`, `fish`, `skyscraper`, `kite`, `xywing`,
+`crane`, `coloring`, `guess`
 
 ## Example
 
@@ -93,9 +101,8 @@ sudoku is 17. In 2022 all 49,159 were found and
 published. [This](https://tinyurl.com/26nntcdy) file of minimal clued
 sudokus is the test set for this sudoku solver program.
 
-Right now, this thing solves all but 4 of the 49,158 17-pole sudokus
-with no guessing or backtracking. For those last 4, I'm doing a
-guess/backtracking.
+All 49,158 17-clue puzzles in the test set solve. Most finish with
+logic alone; the hardest few need the final guess/backtrack step.
 
 ## License
 
