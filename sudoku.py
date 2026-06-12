@@ -47,6 +47,60 @@ class CSet(set):
     def __hash__(self):
         return self.idx
 
+
+class Unknowns:
+    """Unknown cells indexed by row, column, and box for fast unit lookup."""
+
+    _UNITS = {"row": 0, "col": 1, "box": 2}
+
+    def __init__(self):
+        self.by_idx = {}
+        self.by_unit = [[set() for _ in range(9)] for _ in range(3)]
+
+    def add(self, cset):
+        self.by_idx[cset.idx] = cset
+        self.by_unit[0][cset.row].add(cset)
+        self.by_unit[1][cset.col].add(cset)
+        self.by_unit[2][cset.box].add(cset)
+
+    def pop(self, idx):
+        cset = self.by_idx.pop(idx)
+        self.by_unit[0][cset.row].discard(cset)
+        self.by_unit[1][cset.col].discard(cset)
+        self.by_unit[2][cset.box].discard(cset)
+        return cset
+
+    def unit(self, attr, n):
+        """Return the set of unknown CSets in row, col, or box n."""
+        return self.by_unit[self._UNITS[attr]][n]
+
+    def row(self, r):
+        return self.by_unit[0][r]
+
+    def col(self, c):
+        return self.by_unit[1][c]
+
+    def box(self, b):
+        return self.by_unit[2][b]
+
+    def peers(self, row, col, box):
+        """Unknown CSets sharing a row, column, or box."""
+        return self.row(row) | self.col(col) | self.box(box)
+
+    def linked(self, cset):
+        """Unknown CSets that see cset (same row, column, or box), excluding cset."""
+        return self.peers(cset.row, cset.col, cset.box) - {cset}
+
+    def __len__(self):
+        return len(self.by_idx)
+
+    def __iter__(self):
+        return iter(self.by_idx.values())
+
+    def values(self):
+        return self.by_idx.values()
+
+
 def box_format(known):
     """Format a grid as nine rows of digits and dots."""
     return '\n'.join(''.join(str(known[j]) if known[j] else '.' for j in range(i, i+9)) for i in range(0,81,9))
@@ -65,11 +119,12 @@ def add_known(known, unknowns, idx, value):
     unknowns.pop(idx)
     known[idx] = value
     dbg("assign", "known[%d] = %d", idx, value)
-    for u in [u for u in unknowns.values() if (u.row == row or u.col == col or u.box == box) and value in u]:
-        u -= {value}
-        if len(u)==0:
-            print(f'error at {u.idx}: {known}\n{unknowns}\n')
-        assert len(u)
+    for u in unknowns.peers(row, col, box):
+        if value in u:
+            u -= {value}
+            if len(u) == 0:
+                print(f'error at {u.idx}: {known}\n{unknowns.by_idx}\n')
+            assert len(u)
 
 
 def elim_values(vi, gi):
@@ -95,25 +150,17 @@ def elim_values(vi, gi):
 
 def peer_candidates(unknowns, u, attr):
     """Union of candidates from other unknowns in u's row, col, or box."""
-    mine = getattr(u, attr)
-    return set().union(*(o for o in unknowns.values()
-                         if getattr(o, attr) == mine and o.idx != u.idx))
+    return set().union(*(o for o in unknowns.unit(attr, getattr(u, attr)) if o.idx != u.idx))
 
 
 def unit_unknowns(unknowns, u, attr):
     """Unknown cells sharing u's row, col, or box."""
-    mine = getattr(u, attr)
-    return [o for o in unknowns.values() if getattr(o, attr) == mine]
-
-
-def linked_set(cs, unknowns):
-    """Return a set of all candidate sets that are linked to cs."""
-    return {u for u in unknowns.values() if u.row == cs.row or u.col == cs.col or u.box == cs.box} - {cs}
+    return list(unknowns.unit(attr, getattr(u, attr)))
 
 
 def find_singles(known, unknowns):
     """Assign cells with only one remaining candidate. Return True if one was found."""
-    for u in unknowns.values():
+    for u in unknowns:
         if len(u) == 1:
             dbg("singles", "found single %s", u)
             add_known(known, unknowns, u.idx, next(iter(u)))
@@ -123,7 +170,7 @@ def find_singles(known, unknowns):
 
 def find_unaries(known, unknowns):
     """Assign cells that alone hold a value in their row, column, or box."""
-    for u in unknowns.values():
+    for u in unknowns:
         for attr in ("row", "col", "box"):
             if len(unit_unknowns(unknowns, u, attr)) < 2:
                 continue
@@ -145,7 +192,7 @@ def find_locked(known, unknowns):
     """
     for attr in ("row", "col", "box"):
         for unit in range(9):
-            cells = [u for u in unknowns.values() if getattr(u, attr) == unit]
+            cells = list(unknowns.unit(attr, unit))
             for group_size in range(2, min(5, len(cells))):
                 for group in itertools.combinations(cells, group_size):
                     values = set.union(*group)
@@ -165,18 +212,14 @@ def find_boxex(known, unknowns):
     When a digit appears in only one row or column within a box, remove it
     from that row or column in the other boxes.
     """
-    for u in unknowns.values():
+    for u in unknowns:
         for v in u:
-            if not any(1 for u2 in unknowns.values()
-                       if u2.box == u.box and u2.row != u.row and v in u2):
-                if elim_values(v, [u2 for u2 in unknowns.values()
-                                   if u2.box != u.box and u2.row == u.row]):
+            if not any(u2.row != u.row and v in u2 for u2 in unknowns.box(u.box)):
+                if elim_values(v, [u2 for u2 in unknowns.row(u.row) if u2.box != u.box]):
                     dbg("boxex", "row %d value %d in box %d", u.row, v, u.box)
                     return True
-            if not any(1 for u2 in unknowns.values()
-                       if u2.box == u.box and u2.col != u.col and v in u2):
-                if elim_values(v, [u2 for u2 in unknowns.values()
-                                   if u2.box != u.box and u2.col == u.col]):
+            if not any(u2.col != u.col and v in u2 for u2 in unknowns.box(u.box)):
+                if elim_values(v, [u2 for u2 in unknowns.col(u.col) if u2.box != u.box]):
                     dbg("boxex", "col %d value %d in box %d", u.col, v, u.box)
                     return True
     return False
@@ -188,18 +231,14 @@ def find_rcex(known, unknowns):
     When a digit appears in only one box along a row or column, remove it
     from the other rows or columns of that box.
     """
-    for u in unknowns.values():
+    for u in unknowns:
         for v in u:
-            if not any(1 for u2 in unknowns.values()
-                       if u2.box != u.box and u.row == u2.row and v in u2):
-                if elim_values(v, [u2 for u2 in unknowns.values()
-                                   if u2.box == u.box and u2.row != u.row]):
+            if not any(u2.box != u.box and v in u2 for u2 in unknowns.row(u.row)):
+                if elim_values(v, [u2 for u2 in unknowns.box(u.box) if u2.row != u.row]):
                     dbg("rcex", "row %d value %d in box %d", u.row, v, u.box)
                     return True
-            if not any(1 for u2 in unknowns.values()
-                       if u2.box != u.box and u.col == u2.col and v in u2):
-                if elim_values(v, [u2 for u2 in unknowns.values()
-                                   if u2.box == u.box and u2.col != u.col]):
+            if not any(u2.box != u.box and v in u2 for u2 in unknowns.col(u.col)):
+                if elim_values(v, [u2 for u2 in unknowns.box(u.box) if u2.col != u.col]):
                     dbg("rcex", "col %d value %d in box %d", u.col, v, u.box)
                     return True
     return False
@@ -214,14 +253,14 @@ def find_fish(known, unknowns):
     """
     for fish_size in range(2, 9):
         for rows in itertools.combinations(range(9), fish_size):
-            row_sets = [[u for u in unknowns.values() if u.row == row] for row in rows]
+            row_sets = [list(unknowns.row(row)) for row in rows]
             for v in range(1, 10):
                 if not all(r for r in row_sets) or not all(v in set.union(*r) for r in row_sets):
                     continue
                 col_set = set(u.col for r in row_sets for u in r if v in u)
                 if len(col_set) != fish_size:
                     continue
-                remove_set = [u for u in unknowns.values() if u.row not in rows and u.col in col_set]
+                remove_set = [u for u in unknowns if u.row not in rows and u.col in col_set]
                 if elim_values(v, remove_set):
                     dbg("fish", f'fish: {fish_size=} {v=} {rows=} {col_set=}')
                     return True
@@ -235,19 +274,17 @@ def find_skyscrapers(known, unknowns):
     """
     def value_pair(attr, unit, v):
         """Return the two unknowns with v in row/col unit, or None."""
-        cells = [u for u in unknowns.values() if getattr(u, attr) == unit and v in u]
+        cells = [u for u in unknowns.unit(attr, unit) if v in u]
         return cells if len(cells) == 2 else None
 
     def strong_in(attr, u, v):
         """True when u's row/col contains exactly two candidates for v."""
-        unit = getattr(u, attr)
-        return sum(1 for o in unknowns.values() if getattr(o, attr) == unit and v in o) == 2
+        return sum(1 for o in unknowns.unit(attr, getattr(u, attr)) if v in o) == 2
 
     def other_link(link_attr, u, v):
         """Other unknowns sharing u's row/col strong link for v."""
-        link = getattr(u, link_attr)
-        return [o for o in unknowns.values()
-                if o.idx != u.idx and getattr(o, link_attr) == link and v in o]
+        return [o for o in unknowns.unit(link_attr, getattr(u, link_attr))
+                if o.idx != u.idx and v in o]
 
     for base, link in (("row", "col"), ("col", "row")):
         for unit in range(9):
@@ -259,7 +296,7 @@ def find_skyscrapers(known, unknowns):
                     for s2 in other_link(link, pair[1], v):
                         if getattr(s1, base) == getattr(s2, base):
                             continue
-                        intersection = (linked_set(s1, unknowns) & linked_set(s2, unknowns)) - set(pair)
+                        intersection = (unknowns.linked(s1) & unknowns.linked(s2)) - set(pair)
                         if elim_values(v, intersection):
                             dbg("skyscraper", "skyscraper: v=%d pair=%s s1=%s s2=%s", v, pair, s1, s2)
                             return True
@@ -335,7 +372,9 @@ def validate_puzzle(known):
 
 def create_unknowns(known):
     """Build candidate sets for empty cells, applying initial clue constraints."""
-    unknowns = {i: CSet(range(1, 10), i) for i in range(81)}
+    unknowns = Unknowns()
+    for i in range(81):
+        unknowns.add(CSet(range(1, 10), i))
     for idx, v in enumerate(known):
         if v:
             add_known(known, unknowns, idx, v)
@@ -353,7 +392,7 @@ def run_solvers(solvers, known, unknowns):
     for s in solvers:
         dbg("solver", "calling %s", s.__name__)
         if s(known, unknowns):
-            assert all(len(u) > 0 for u in unknowns.values())
+            assert all(len(u) > 0 for u in unknowns)
             return True
     return False
 
@@ -375,10 +414,10 @@ def solve(puzzle):
     known = parse_puzzle(puzzle)
     validate_puzzle(known)
     unknowns = create_unknowns(known)
-    assert all(len(u) > 0 for u in unknowns.values())
+    assert all(len(u) > 0 for u in unknowns)
     dbg("solve", "solving:\n%s", box_format(known))
     while len(unknowns) and run_solvers(solvers, known, unknowns):
-        if not all(len(u) > 0 for u in unknowns.values()):
+        if not all(len(u) > 0 for u in unknowns):
             sys.stderr.write(f'Internal error with line\n{puzzle}\n{format_known(known)}\n')
             break
     solved = len(unknowns) == 0
