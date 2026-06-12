@@ -287,7 +287,15 @@ def parse_puzzle(puzzle):
     line = puzzle.strip()
     if len(line) != 81:
         raise ValueError(f"expected 81 characters, got {len(line)}")
-    return [int(ch) if ch.isdigit() else 0 for ch in line]
+    known = []
+    for i, ch in enumerate(line):
+        if ch in ".*":
+            known.append(0)
+        elif ch in "123456789":
+            known.append(int(ch))
+        else:
+            raise ValueError(f"invalid character {ch!r} at position {i}")
+    return known
 
 
 def validate_puzzle(known):
@@ -431,6 +439,9 @@ def main():
             f.write(output)
     else:
         sys.stdout.write(output)
+
+    if fails:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

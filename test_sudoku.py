@@ -98,6 +98,15 @@ class TestParseAndValidate(unittest.TestCase):
         puzzle = "." * 80 + "1"
         self.assertEqual(sudoku.parse_puzzle(puzzle), [0] * 80 + [1])
 
+    def test_parse_puzzle_accepts_asterisks(self):
+        puzzle = "*" * 80 + "1"
+        self.assertEqual(sudoku.parse_puzzle(puzzle), [0] * 80 + [1])
+
+    def test_parse_puzzle_rejects_invalid_characters(self):
+        puzzle = "." * 40 + "x" + "." * 40
+        with self.assertRaisesRegex(ValueError, "invalid character 'x' at position 40"):
+            sudoku.parse_puzzle(puzzle)
+
     def test_validate_puzzle_rejects_duplicate_in_row(self):
         puzzle = "1" + "." * 80
         known = sudoku.parse_puzzle(puzzle)
