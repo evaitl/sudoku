@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import functools
 import itertools
 import argparse
 import logging
@@ -22,6 +23,42 @@ class SectionFilter(logging.Filter):
 
 def dbg(section, msg, *args):
     log.debug(msg, *args, extra={"section": section})
+
+
+_solver_counts = {}
+_solver_names = []
+
+
+def count_solver(fn):
+    """Decorator that counts how often a solver returns True."""
+    name = fn.__name__
+    _solver_names.append(name)
+    _solver_counts[name] = 0
+
+    @functools.wraps(fn)
+    def wrapper(known, unknowns):
+        if fn(known, unknowns):
+            _solver_counts[name] += 1
+            return True
+        return False
+
+    return wrapper
+
+
+def reset_solver_counts():
+    """Reset per-solver success counters to zero."""
+    for name in _solver_names:
+        _solver_counts[name] = 0
+
+
+def solver_counts():
+    """Return a copy of per-solver success counters."""
+    return dict(_solver_counts)
+
+
+def format_solver_counts(counts):
+    """Format solver counters for display."""
+    return " ".join(f"{name}={counts[name]}" for name in _solver_names)
 
 
 class CSet(set):
@@ -152,6 +189,7 @@ def elim_values(vi, gi):
     return ret
 
 
+@count_solver
 def find_singles(known, unknowns):
     """Assign cells with only one remaining candidate. Return True if one was found."""
     for u in unknowns:
@@ -162,6 +200,7 @@ def find_singles(known, unknowns):
     return False
 
 
+@count_solver
 def find_unaries(known, unknowns):
     """Assign cells that alone hold a value in their row, column, or box."""
     for attr in ("row", "col", "box"):
@@ -189,6 +228,7 @@ def find_unaries(known, unknowns):
     return False
 
 
+@count_solver
 def find_locked(_known, unknowns):
     """Naked pairs, triples, and quads in rows, columns, or boxes.
 
@@ -211,6 +251,7 @@ def find_locked(_known, unknowns):
     return False
 
 
+@count_solver
 def find_boxex(_known, unknowns):
     """Box/line reduction (locked candidates type 1).
 
@@ -230,6 +271,7 @@ def find_boxex(_known, unknowns):
     return False
 
 
+@count_solver
 def find_rcex(_known, unknowns):
     """Row/column claiming (locked candidates type 2).
 
@@ -249,6 +291,7 @@ def find_rcex(_known, unknowns):
     return False
 
 
+@count_solver
 def find_fish(_known, unknowns):
     """xwing, swordfish, etcetera
 
@@ -295,6 +338,7 @@ def find_fish(_known, unknowns):
     return False
 
 
+@count_solver
 def find_skyscrapers(_known, unknowns):
     """Skyscrapers
 
@@ -336,6 +380,7 @@ def find_skyscrapers(_known, unknowns):
 
 
 
+@count_solver
 def find_kites(_known, unknowns):
     """Two-string kites.
 
@@ -382,6 +427,7 @@ def find_kites(_known, unknowns):
                             return True
     return False
 
+@count_solver
 def find_crane(_known, unknowns):
     """Cranes (strong-weak-strong chain).
 
@@ -451,6 +497,20 @@ def find_crane(_known, unknowns):
                     if try_elimination(end_a, end_d, chain, digit):
                         return True
     return False
+
+
+SOLVERS = (
+    find_singles,
+    find_unaries,
+    find_locked,
+    find_boxex,
+    find_rcex,
+    find_fish,
+    find_skyscrapers,
+    find_kites,
+    find_crane,
+)
+
 
 def parse_puzzle(puzzle):
     """Parse an 81-character puzzle string into a list of cell values (0 for empty)."""
@@ -530,23 +590,13 @@ def solve(puzzle):
 
     Return (solved, grid) where solved is True when every cell is filled.
     """
-    solvers = (
-        find_singles,
-        find_unaries,
-        find_locked,
-        find_boxex,
-        find_rcex,
-        find_fish,
-        find_skyscrapers,
-        find_kites,
-        find_crane,
-    )
+    reset_solver_counts()
     known = parse_puzzle(puzzle)
     validate_puzzle(known)
     unknowns = create_unknowns(known)
     assert all(len(u) > 0 for u in unknowns)
     dbg("solve", "solving:\n%s", box_format(known))
-    while len(unknowns) and run_solvers(solvers, known, unknowns):
+    while len(unknowns) and run_solvers(SOLVERS, known, unknowns):
         if not all(len(u) > 0 for u in unknowns):
             sys.stderr.write(f'Internal error with line\n{puzzle}\n{format_known(known)}\n')
             break
@@ -584,6 +634,7 @@ def main():
         logging.basicConfig(level=logging.DEBUG, handlers=[handler], force=True)
 
     results = []
+    batch_solver_counts = {name: 0 for name in _solver_names}
     with open(args.input_file, encoding="utf-8") as f:
         passes,fails=0,0
         for line in f:
@@ -592,14 +643,19 @@ def main():
                 continue
 
             r=solve(line)
+            puzzle_counts = solver_counts()
+            counts = format_solver_counts(puzzle_counts)
+            for name, count in puzzle_counts.items():
+                batch_solver_counts[name] += count
             if not r[0]:
                 fails+=1
-                results.append(f'failed:\ni={line}\no={r[1]}')
+                results.append(f'failed:\ni={line}\no={r[1]}\nc={counts}')
             else:
                 passes+=1
-                results.append(f'passed:\ni={line}\no={r[1]}')
+                results.append(f'passed:\ni={line}\no={r[1]}\nc={counts}')
 
     results.append(f'{passes=} {fails=}')
+    results.append(format_solver_counts(batch_solver_counts))
     output = "\n".join(results)
     if output:
         output += "\n"
