@@ -8,7 +8,7 @@ log = logging.getLogger(__name__)
 
 DEBUG_SECTIONS = frozenset({ "solve", "assign", "solver", "singles",
                              "unaries", "locked", "boxex", "rcex", "elim","fish",
-                             "skyscraper", "kite", })
+                             "skyscraper", "kite", "crane",})
 _debug_sections = None
 
 
@@ -310,6 +310,7 @@ def find_skyscrapers(_known, unknowns):
     return False
 
 
+
 def find_kites(_known, unknowns):
     """Two-string kites.
 
@@ -356,6 +357,75 @@ def find_kites(_known, unknowns):
                             return True
     return False
 
+def find_crane(_known, unknowns):
+    """Cranes (strong-weak-strong chain).
+
+    https://sudoku.coach/en/learn/crane
+
+    end_a and end_d are the outer endpoints of a strong-weak-strong chain for
+    digit v. Eliminate v from unknown cells that see both endpoints.
+    """
+    def digit_holders(cells, digit):
+        return [cell for cell in cells if digit in cell]
+
+    def strong_link(cells, left, right, digit):
+        holders = digit_holders(cells, digit)
+        return len(holders) == 2 and left in holders and right in holders
+
+    def weak_box_link(mid_b, mid_c, digit):
+        if mid_b.box != mid_c.box or digit not in mid_b or digit not in mid_c:
+            return False
+        if mid_b.row == mid_c.row:
+            return len(digit_holders(unknowns.row(mid_b.row), digit)) > 2
+        if mid_b.col == mid_c.col:
+            return len(digit_holders(unknowns.col(mid_b.col), digit)) > 2
+        return True
+
+    def try_elimination(end_a, end_d, chain, digit):
+        targets = {
+            cell for cell in unknowns.linked(end_a) & unknowns.linked(end_d)
+            if digit in cell
+        } - chain
+        if elim_values(digit, targets):
+            dbg(
+                "crane",
+                "crane: digit=%d end_a=%s end_d=%s targets=%s",
+                digit, end_a, end_d, targets,
+            )
+            return True
+        return False
+
+    for end_a in unknowns.values():
+        if len(end_a) != 2:
+            continue
+        for mid_b in unknowns.linked(end_a):
+            if len(mid_b) != 2 or len(end_a & mid_b) != 2:
+                continue
+            for mid_c in unknowns.linked(mid_b) - {end_a}:
+                if len(mid_c) != 2 or len(mid_b & mid_c) != 1:
+                    continue
+                digit = next(iter(mid_b & mid_c))
+                if not any(
+                    strong_link(unknowns.unit(unit, getattr(end_a, unit)), end_a, mid_b, digit)
+                    for unit in ("row", "col")
+                ):
+                    continue
+                if not weak_box_link(mid_b, mid_c, digit):
+                    continue
+                for end_d in unknowns.linked(mid_c) - {end_a, mid_b}:
+                    if digit not in end_d:
+                        continue
+                    if end_d not in unknowns.linked(end_a):
+                        continue
+                    if not any(
+                        strong_link(unknowns.unit(unit, getattr(mid_c, unit)), mid_c, end_d, digit)
+                        for unit in ("row", "col", "box")
+                    ):
+                        continue
+                    chain = {end_a, mid_b, mid_c, end_d}
+                    if try_elimination(end_a, end_d, chain, digit):
+                        return True
+    return False
 
 def parse_puzzle(puzzle):
     """Parse an 81-character puzzle string into a list of cell values (0 for empty)."""
@@ -444,6 +514,7 @@ def solve(puzzle):
         find_fish,
         find_skyscrapers,
         find_kites,
+        find_crane,
     )
     known = parse_puzzle(puzzle)
     validate_puzzle(known)

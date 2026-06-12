@@ -111,6 +111,8 @@ SOLVERS_BEFORE_KITES = (
     sudoku.find_skyscrapers,
 )
 
+SOLVERS_BEFORE_CRANES = SOLVERS_BEFORE_KITES + (sudoku.find_kites,)
+
 
 def run_solvers_to_fixpoint(solvers, known, unknowns):
     while sudoku.run_solvers(solvers, known, unknowns):
@@ -147,6 +149,39 @@ class TestFindKites(unittest.TestCase):
         target = unknowns.by_idx[self.KITE_TARGET_IDX]
         self.assertTrue(sudoku.find_kites(known, unknowns))
         self.assertEqual(set(target), {9})
+
+
+class TestFindCrane(unittest.TestCase):
+    def test_find_crane_eliminates_from_endpoint_overlap_not_end_d(self):
+        """Synthetic strong-weak-strong chain for digit 8."""
+        unknowns = sudoku.Unknowns()
+        specs = {
+            0: {8, 1},    # end_a (0,0)
+            2: {8, 1},    # mid_b (0,2) row strong link with end_a
+            18: {8, 2},   # mid_c (2,0) weak box link with mid_b
+            20: {8, 2},   # end_d (2,2) row strong link with mid_c
+            11: {8, 3},   # overlap target sees end_a and end_d
+        }
+        for idx, cands in specs.items():
+            unknowns.add(sudoku.CSet(cands, idx))
+
+        end_d = unknowns.by_idx[20]
+        target = unknowns.by_idx[11]
+        self.assertIn(8, end_d)
+        self.assertIn(8, target)
+
+        self.assertTrue(sudoku.find_crane([0] * 81, unknowns))
+        self.assertIn(8, end_d)
+        self.assertNotIn(8, target)
+
+    def test_find_crane_rejects_invalid_column_tail(self):
+        """Column with three holders is not a strong link for the tail."""
+        known = sudoku.parse_puzzle(
+            "........8.....8..18....2.34...78561.61729438558.31674....853496348629157965...823"
+        )
+        unknowns = sudoku.create_unknowns(known)
+        run_solvers_to_fixpoint(SOLVERS_BEFORE_CRANES, known, unknowns)
+        self.assertFalse(sudoku.find_crane(known, unknowns))
 
 
 class TestCliExitCode(unittest.TestCase):
