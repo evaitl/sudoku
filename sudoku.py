@@ -1047,38 +1047,47 @@ def solve(puzzle):
     return solved, grid
 
 
-def _solver_worker(work):
+def _solver_worker(work, results, results_lock):
     """Pull puzzles from work until the queue is empty."""
     while True:
         item = work.get()
         if item is None:
             work.task_done()
             break
-        idx, line = item
-        solved, grid, puzzle_counts = _solve_puzzle(line, merge_stats=True)
+        line = item
+        try:
+            solved, grid, puzzle_counts = _solve_puzzle(line, merge_stats=True)
+            counts = format_solver_counts(puzzle_counts)
+        except ValueError:
+            solved = False
+            grid = line
+            counts = ""
+        if solved:
+            entry = f'passed:\ni={line}\no={grid}\nc={counts}'
+        else:
+            entry = f'failed:\ni={line}\no={grid}\nc={counts}'
+        with results_lock:
+            results.append((solved, entry))
         work.task_done()
-        yield idx, line, solved, grid, puzzle_counts
 
 
 def solve_puzzles_parallel(puzzles):
-    """Solve puzzles on one thread per CPU core, preserving input order."""
+    """Solve puzzles on one thread per CPU core."""
     if not puzzles:
         return [], 0, 0
 
     workers = os.cpu_count() or 1
     work = Queue()
-    for idx, line in enumerate(puzzles):
-        work.put((idx, line))
+    for line in puzzles:
+        work.put(line)
 
-    results = {}
+    results = []
     results_lock = threading.Lock()
 
-    def run_worker():
-        for idx, line, solved, grid, puzzle_counts in _solver_worker(work):
-            with results_lock:
-                results[idx] = (line, solved, grid, puzzle_counts)
-
-    threads = [threading.Thread(target=run_worker) for _ in range(workers)]
+    threads = [
+        threading.Thread(target=_solver_worker, args=(work, results, results_lock))
+        for _ in range(workers)
+    ]
     for thread in threads:
         thread.start()
     for _ in range(workers):
@@ -1086,18 +1095,9 @@ def solve_puzzles_parallel(puzzles):
     for thread in threads:
         thread.join()
 
-    ordered = []
-    passes = fails = 0
-    for idx in range(len(puzzles)):
-        line, solved, grid, puzzle_counts = results[idx]
-        counts = format_solver_counts(puzzle_counts)
-        if solved:
-            passes += 1
-            ordered.append(f'passed:\ni={line}\no={grid}\nc={counts}')
-        else:
-            fails += 1
-            ordered.append(f'failed:\ni={line}\no={grid}\nc={counts}')
-    return ordered, passes, fails
+    passes = sum(1 for solved, _ in results if solved)
+    fails = len(results) - passes
+    return [entry for _, entry in results], passes, fails
 
 
 def main():
