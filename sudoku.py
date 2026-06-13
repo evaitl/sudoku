@@ -3,8 +3,11 @@ import functools
 import itertools
 import argparse
 import logging
+import os
 import sys
+import threading
 import time
+from queue import Queue
 
 log = logging.getLogger(__name__)
 
@@ -26,47 +29,91 @@ def dbg(section, msg, *args):
     log.debug(msg, *args, extra={"section": section})
 
 
-_solver_counts = {}
-_solver_times = {}
 _solver_names = []
+_thread_stats = threading.local()
+_stats_lock = threading.Lock()
+_main_batch_counts = {}
+_main_batch_times = {}
+
+
+def _thread_solver_stats():
+    counts = getattr(_thread_stats, "counts", None)
+    if counts is None:
+        counts = {name: 0 for name in _solver_names}
+        times = {name: 0.0 for name in _solver_names}
+        _thread_stats.counts = counts
+        _thread_stats.times = times
+    return _thread_stats.counts, _thread_stats.times
 
 
 def count_solver(fn):
     """Decorator that counts how often a solver returns True."""
     name = fn.__name__
     _solver_names.append(name)
-    _solver_counts[name] = 0
-    _solver_times[name] = 0.0
 
     @functools.wraps(fn)
     def wrapper(known, unknowns):
+        counts, times = _thread_solver_stats()
         start = time.perf_counter()
         try:
             result = fn(known, unknowns)
         finally:
-            _solver_times[name] += time.perf_counter() - start
+            times[name] += time.perf_counter() - start
         if result:
-            _solver_counts[name] += 1
+            counts[name] += 1
         return result
 
     return wrapper
 
 
 def reset_solver_counts():
-    """Reset per-solver success counters and timings to zero."""
+    """Reset per-solver success counters and timings to zero on this thread."""
+    counts, times = _thread_solver_stats()
     for name in _solver_names:
-        _solver_counts[name] = 0
-        _solver_times[name] = 0.0
+        counts[name] = 0
+        times[name] = 0.0
 
 
 def solver_counts():
-    """Return a copy of per-solver success counters."""
-    return dict(_solver_counts)
+    """Return a copy of this thread's per-solver success counters."""
+    counts, _ = _thread_solver_stats()
+    return dict(counts)
 
 
 def solver_times():
-    """Return a copy of per-solver elapsed seconds."""
-    return dict(_solver_times)
+    """Return a copy of this thread's per-solver elapsed seconds."""
+    _, times = _thread_solver_stats()
+    return dict(times)
+
+
+def init_batch_solver_stats():
+    """Reset merged batch totals on the main thread."""
+    with _stats_lock:
+        for name in _solver_names:
+            _main_batch_counts[name] = 0
+            _main_batch_times[name] = 0.0
+
+
+def merge_solver_stats():
+    """Merge this thread's solver stats into the main batch totals."""
+    counts, times = _thread_solver_stats()
+    with _stats_lock:
+        for name in _solver_names:
+            _main_batch_counts[name] += counts[name]
+            _main_batch_times[name] += times[name]
+    reset_solver_counts()
+
+
+def batch_solver_counts():
+    """Return a copy of merged per-solver success counters."""
+    with _stats_lock:
+        return dict(_main_batch_counts)
+
+
+def batch_solver_times():
+    """Return a copy of merged per-solver elapsed seconds."""
+    with _stats_lock:
+        return dict(_main_batch_times)
 
 
 def format_solver_counts(counts):
@@ -969,11 +1016,8 @@ def run_solvers(solvers, known, unknowns):
     return False
 
 
-def solve(puzzle):
-    """Solve a puzzle using logical deduction, then guess-and-backtrack if needed.
-
-    Return (solved, grid) where solved is True when every cell is filled.
-    """
+def _solve_puzzle(puzzle, *, merge_stats=False):
+    """Solve one puzzle and optionally merge solver stats into the main totals."""
     reset_solver_counts()
     known = parse_puzzle(puzzle)
     validate_puzzle(known)
@@ -987,7 +1031,73 @@ def solve(puzzle):
     solved = len(unknowns) == 0
     dbg("solve", "result %s, %d unknowns remaining:\n%s",
         "solved" if solved else "unsolved", len(unknowns), box_format(known))
-    return (solved, format_known(known))
+    grid = format_known(known)
+    puzzle_counts = solver_counts()
+    if merge_stats:
+        merge_solver_stats()
+    return solved, grid, puzzle_counts
+
+
+def solve(puzzle):
+    """Solve a puzzle using logical deduction, then guess-and-backtrack if needed.
+
+    Return (solved, grid) where solved is True when every cell is filled.
+    """
+    solved, grid, _ = _solve_puzzle(puzzle)
+    return solved, grid
+
+
+def _solver_worker(work):
+    """Pull puzzles from work until the queue is empty."""
+    while True:
+        item = work.get()
+        if item is None:
+            work.task_done()
+            break
+        idx, line = item
+        solved, grid, puzzle_counts = _solve_puzzle(line, merge_stats=True)
+        work.task_done()
+        yield idx, line, solved, grid, puzzle_counts
+
+
+def solve_puzzles_parallel(puzzles):
+    """Solve puzzles on one thread per CPU core, preserving input order."""
+    if not puzzles:
+        return [], 0, 0
+
+    workers = os.cpu_count() or 1
+    work = Queue()
+    for idx, line in enumerate(puzzles):
+        work.put((idx, line))
+
+    results = {}
+    results_lock = threading.Lock()
+
+    def run_worker():
+        for idx, line, solved, grid, puzzle_counts in _solver_worker(work):
+            with results_lock:
+                results[idx] = (line, solved, grid, puzzle_counts)
+
+    threads = [threading.Thread(target=run_worker) for _ in range(workers)]
+    for thread in threads:
+        thread.start()
+    for _ in range(workers):
+        work.put(None)
+    for thread in threads:
+        thread.join()
+
+    ordered = []
+    passes = fails = 0
+    for idx in range(len(puzzles)):
+        line, solved, grid, puzzle_counts = results[idx]
+        counts = format_solver_counts(puzzle_counts)
+        if solved:
+            passes += 1
+            ordered.append(f'passed:\ni={line}\no={grid}\nc={counts}')
+        else:
+            fails += 1
+            ordered.append(f'failed:\ni={line}\no={grid}\nc={counts}')
+    return ordered, passes, fails
 
 
 def main():
@@ -1017,33 +1127,18 @@ def main():
         handler.setFormatter(logging.Formatter("[%(section)s] %(message)s"))
         logging.basicConfig(level=logging.DEBUG, handlers=[handler], force=True)
 
-    results = []
-    batch_solver_counts = {name: 0 for name in _solver_names}
-    batch_solver_times = {name: 0.0 for name in _solver_names}
+    puzzles = []
     with open(args.input_file, encoding="utf-8") as f:
-        passes,fails=0,0
         for line in f:
             line = line.strip()
-            if not line:
-                continue
+            if line:
+                puzzles.append(line)
 
-            r=solve(line)
-            puzzle_counts = solver_counts()
-            counts = format_solver_counts(puzzle_counts)
-            for name, count in puzzle_counts.items():
-                batch_solver_counts[name] += count
-            for name, elapsed in solver_times().items():
-                batch_solver_times[name] += elapsed
-            if not r[0]:
-                fails+=1
-                results.append(f'failed:\ni={line}\no={r[1]}\nc={counts}')
-            else:
-                passes+=1
-                results.append(f'passed:\ni={line}\no={r[1]}\nc={counts}')
-
+    init_batch_solver_stats()
+    results, passes, fails = solve_puzzles_parallel(puzzles)
     results.append(f'{passes=} {fails=}')
-    results.append(format_solver_counts(batch_solver_counts))
-    results.append(format_solver_times(batch_solver_times))
+    results.append(format_solver_counts(batch_solver_counts()))
+    results.append(format_solver_times(batch_solver_times()))
     output = "\n".join(results)
     if output:
         output += "\n"
